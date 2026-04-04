@@ -34,7 +34,7 @@ try:
     if "\\n" in raw_conf["private_key"]:
         raw_conf["private_key"] = raw_conf["private_key"].replace("\\n", "\n")
     
-    conn = st.connection("gsheets", type=GSheetsConnection, **raw_conf)
+    conn = st.connection("gsheets", **raw_conf)
 except Exception as e:
     st.error(f"❌ 연결 초기화 오류: {e}")
     st.info("💡 찌니의 조언: Secrets의 private_key가 한 줄 버전인지 다시 확인해 주세요!")
