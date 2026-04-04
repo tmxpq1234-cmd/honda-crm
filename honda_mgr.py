@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 ---
+# --- 1. 설정 (검증된 저장 로직 및 보안 조각 유지) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 (v107의 칼 맞춤 유지) ---
+# --- 2. 디자인 (v107~108의 칼 맞춤 및 줄바꿈 방지 유지) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -35,7 +35,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 함수 ---
+# --- 3. 통신 함수 ---
 def github_action(df, path):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -60,7 +60,6 @@ def load_github_data(path):
 # --- 4. 데이터 로드 ---
 if 'crm_df' not in st.session_state:
     st.session_state.crm_df = load_github_data(FILE_PATH)
-    # 신규 컬럼 대응 (계약일, 인도일)
     cols = st.session_state.crm_df.columns
     if "계약일" not in cols: st.session_state.crm_df["계약일"] = ""
     if "인도일" not in cols: st.session_state.crm_df["인도일"] = ""
@@ -78,7 +77,7 @@ if not st.session_state.logged_in:
         if user_db.get(u) == p: st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
     st.stop()
 
-# --- 6. 대시보드 ---
+# --- 6. 상단 UI ---
 st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
 with st.sidebar:
     st.write(f"🟢 **{st.session_state.user_name}** 접속 중")
@@ -86,9 +85,9 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (인수인계 등) ---
+# --- 7. 팀장 도구 (인수인계 상세 기능 복구 완료) ---
 if st.session_state.user_name == "박스테반":
-    with st.expander("⚙️ 팀장 전용 도구", expanded=False):
+    with st.expander("⚙️ 팀장 전용 도구 (인사 및 인수인계)", expanded=False):
         t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
         with t1:
             c1, c2 = st.columns(2)
@@ -102,19 +101,26 @@ if st.session_state.user_name == "박스테반":
                 if st.button("명단에서 삭제"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
-        with t2:
-            src = st.selectbox("업무를 넘길 사람", list(user_db.keys()), key="src")
-            tgt = st.selectbox("업무를 받을 사람", [u for u in user_db.keys() if u != src], key="tgt")
+        
+        with t2: # 🛠️ 복구된 상세 인수인계 기능
+            st.write("**🔄 선택형 고객 인수인계**")
+            src = st.selectbox("업무를 넘길 담당자", list(user_db.keys()), key="src")
+            tgt = st.selectbox("업무를 받을 담당자", [u for u in user_db.keys() if u != src], key="tgt")
+            
             src_customers = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
             if not src_customers.empty:
-                selected_customers = st.multiselect("이전할 고객 선택", options=src_customers.index.tolist(), format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})")
-                if st.button(f"선택한 {len(selected_customers)}명 이전"):
-                    st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
-                    github_action(st.session_state.crm_df, FILE_PATH); st.success("분배 완료!"); st.rerun()
+                selected_customers = st.multiselect("이전할 고객을 선택하세요", options=src_customers.index.tolist(), format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})")
+                if st.button(f"선택한 {len(selected_customers)}명 인수인계 실행"):
+                    if selected_customers:
+                        st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
+                        github_action(st.session_state.crm_df, FILE_PATH)
+                        st.success(f"{len(selected_customers)}명의 고객이 {tgt}님에게 이전되었습니다."); st.rerun()
+            else:
+                st.info("해당 담당자에게 등록된 고객이 없습니다.")
 
 st.divider()
 
-# --- 8. 고객 등록 및 리스트 (핵심 수정) ---
+# --- 8. 고객 등록 및 리스트 ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -137,27 +143,26 @@ with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     v_df = st.session_state.crm_df if st.session_state.user_name == "박스테반" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
 
-    with tab1: # 계약 현황
+    with tab1: # 계약 현황 & 인도처리
         target_con = v_df[v_df['단계'] == "계약완료"]
         for idx, row in target_con.iterrows():
             c1, c2, c3 = st.columns([2, 3, 1.2]) 
             with c1: st.markdown(f"**{row['고객명']}**<br><small>{row['모델']}</small>", unsafe_allow_html=True)
             with c2: st.markdown(f"<span class='info-text'>계약일: {row['계약일']} | 담당: {row['담당자']}</span>", unsafe_allow_html=True)
-            if c3.button("🚚 인도처리", key=f"upd_{idx}"):
+            if c3.button("🚚 인도완료", key=f"upd_{idx}"):
                 st.session_state.crm_df.at[idx, '단계'] = "인도완료"
-                st.session_state.crm_df.at[idx, '인도일'] = str(datetime.now().date()) # 누른 날짜를 인도일로 저장
+                st.session_state.crm_df.at[idx, '인도일'] = str(datetime.now().date())
                 github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
         st.divider(); st.dataframe(target_con[["ID","고객명","모델","계약일","담당자"]], use_container_width=True)
 
     with tab2: st.dataframe(v_df[v_df['단계'] == "인도완료"][["ID","고객명","모델","계약일","인도일","담당자"]], use_container_width=True)
 
-    with tab3: # 사후관리 (인도일 기준 계산)
+    with tab3: # 사후관리 (인도일 기준 날짜 계산 유지)
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
             with st.expander(f"📌 {row['고객명']} ({row['모델']}) | 인도일: {row['인도일']}"):
                 try: base_date = datetime.strptime(str(row['인도일']), "%Y-%m-%d")
                 except: base_date = datetime.now()
-                
                 cols = st.columns(4)
                 for i, p in enumerate([1, 3, 6, 12]):
                     with cols[i]:
