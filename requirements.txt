@@ -1,5 +1,5 @@
-streamlit
-st-gsheets-connection
-pandas
+streamlit>=1.30.0
+streamlit-gsheets
 google-api-python-client
-google-auth-oauthlib
+google-auth
+pandas
