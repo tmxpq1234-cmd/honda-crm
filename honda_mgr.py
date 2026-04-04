@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 (보안 저장 방식 유지) ---
+# --- 1. 설정 (보안 저장 방식 절대 유지) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 ---
+# --- 2. 디자인 (이미지 속 버튼 줄바꿈 및 불균형 해결 유지) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -33,12 +33,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 통신 함수 (날짜순 정렬 저장 유지) ---
+# --- 3. 통신 함수 (날짜순 정렬 저장 로직 고정) ---
 def github_action(df, path):
     if path == FILE_PATH:
         df['temp_date'] = df['인도일'].replace('', '1900-01-01')
         df.loc[df['temp_date'] == '1900-01-01', 'temp_date'] = df['계약일']
         df = df.sort_values(by='temp_date', ascending=False).drop(columns=['temp_date'])
+    
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     res_get = requests.get(url, headers=headers)
@@ -81,11 +82,11 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 ---
+# --- 7. 팀장 도구 (상세 인수인계 로직 절대 고정) ---
 if st.session_state.user_name == "박스테반":
-    with st.expander("⚙️ 팀장 전용 도구", expanded=False):
-        t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
-        with t1:
+    with st.expander("⚙️ 팀장 전용 도구 (인사 및 인수인계)", expanded=False):
+        t_insa, t_transfer = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
+        with t_insa:
             c1, c2 = st.columns(2)
             with c1:
                 new_n = st.text_input("신입 이름 입력", key="new_curator")
@@ -97,7 +98,8 @@ if st.session_state.user_name == "박스테반":
                 if st.button("명단에서 삭제"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
-        with t2: # 인수인계 상세 기능 유지
+        
+        with t_transfer: # 🛠️ 복구 완료: 체크박스 선택형 인수인계
             st.write("**🔄 선택형 고객 인수인계**")
             src = st.selectbox("업무를 넘길 담당자", list(user_db.keys()), key="src_user")
             tgt = st.selectbox("업무를 받을 담당자", [u for u in user_db.keys() if u != src], key="tgt_user")
@@ -105,12 +107,14 @@ if st.session_state.user_name == "박스테반":
             if not src_cust.empty:
                 sel_cust = st.multiselect("이전할 고객을 선택하세요", options=src_cust.index.tolist(), format_func=lambda x: f"{src_cust.loc[x, '고객명']} ({src_cust.loc[x, '모델']})")
                 if st.button(f"선택한 {len(sel_cust)}명 인수인계 실행"):
-                    st.session_state.crm_df.loc[sel_cust, '담당자'] = tgt
-                    github_action(st.session_state.crm_df, FILE_PATH); st.success("분배 완료!"); st.rerun()
+                    if sel_cust:
+                        st.session_state.crm_df.loc[sel_cust, '담당자'] = tgt
+                        github_action(st.session_state.crm_df, FILE_PATH); st.success("인수인계 완료!"); st.rerun()
+            else: st.info("해당 담당자에게 등록된 고객이 없습니다.")
 
 st.divider()
 
-# --- 8. 고객 리스트 조회 ---
+# --- 8. 고객 리스트 및 필터 ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -128,7 +132,7 @@ with col_reg:
 with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     
-    # 🔍 큐레이터 필터 (팀장 전용) 유지
+    # 🔍 큐레이터 필터 박스 유지
     filter_curator = "전체"
     if st.session_state.user_name == "박스테반":
         filter_curator = st.selectbox("🔍 큐레이터별 명단 필터", ["전체"] + list(user_db.keys()), key="filter_box")
@@ -147,7 +151,6 @@ with col_view:
         df_sorted.index = range(1, len(df_sorted) + 1)
         return df_sorted
 
-    # 🛠️ 수정 및 삭제 기능 통합
     def render_edit_delete(idx, row):
         with st.expander(f"✏️ {row['고객명']} 정보 수정 및 삭제"):
             c1, c2 = st.columns(2)
@@ -167,7 +170,7 @@ with col_view:
                     st.session_state.crm_df.at[idx, '계약일'], st.session_state.crm_df.at[idx, '담당자'] = str(ecd), emgr
                     if eid: st.session_state.crm_df.at[idx, '인도일'] = str(eid)
                     github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
-            with sc2: # 🛠️ 고객 삭제 버튼 추가
+            with sc2: # 🛠️ 유지: 고객 삭제 기능
                 if st.button("🚨 이 고객 데이터 삭제", key=f"edel_{idx}"):
                     st.session_state.crm_df = st.session_state.crm_df.drop(idx)
                     github_action(st.session_state.crm_df, FILE_PATH); st.warning(f"{row['고객명']}님 삭제됨"); st.rerun()
@@ -195,7 +198,7 @@ with col_view:
     with tab3: # 사후관리
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
-            with st.expander(f"📌 {row['고객명']} 사후관리"):
+            with st.expander(f"📌 {row['고객명']} 사후관리 스케줄"):
                 try: base_date = datetime.strptime(str(row['인도일']), "%Y-%m-%d")
                 except: base_date = datetime.now()
                 cols = st.columns(4)
