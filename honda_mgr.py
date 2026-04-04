@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 (줄 균형 최적화) ---
+# --- 2. 디자인 ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -24,12 +24,10 @@ st.markdown("""
         .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
         .stButton button { 
-            border-radius: 6px; 
-            font-weight: 600; 
-            white-space: nowrap !important;
-            width: 100% !important;
-            height: 42px !important;
+            border-radius: 6px; font-weight: 600; white-space: nowrap !important;
+            width: 100% !important; height: 42px !important;
         }
+        .date-label { color: #CC0000; font-weight: 700; font-size: 14px; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -58,15 +56,10 @@ def load_github_data(path):
 # --- 4. 데이터 로드 ---
 if 'crm_df' not in st.session_state:
     st.session_state.crm_df = load_github_data(FILE_PATH)
-    if st.session_state.crm_df.empty:
-        st.session_state.crm_df = pd.DataFrame(columns=["ID", "고객명", "담당자", "기준일", "모델", "단계", "비고"])
-
 if 'user_df' not in st.session_state:
     st.session_state.user_df = load_github_data(USER_FILE)
-    if st.session_state.user_df.empty:
-        st.session_state.user_df = pd.DataFrame([{"ID": "박스테반", "Password": "1234"}, {"ID": "김태형", "Password": "2290"}, {"ID": "전유인", "Password": "2290"}, {"ID": "전명현", "Password": "2290"}, {"ID": "이준창", "Password": "2290"}])
 
-# --- 5. 로그인 ---
+# --- 5. 로그인 섹션 (박스테반 팀장님 및 팀원) ---
 user_db = dict(zip(st.session_state.user_df['ID'].astype(str), st.session_state.user_df['Password'].astype(str)))
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if not st.session_state.logged_in:
@@ -76,7 +69,7 @@ if not st.session_state.logged_in:
         if user_db.get(u) == p: st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
     st.stop()
 
-# --- 6. 대시보드 UI ---
+# --- 6. 대시보드 상단 ---
 st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
 with st.sidebar:
     st.write(f"🟢 **{st.session_state.user_name}** 접속 중")
@@ -84,51 +77,35 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (선택형 인수인계 업그레이드) ---
+# --- 7. 팀장 도구 (인사관리 및 선택형 인수인계) ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 및 업무 분배)", expanded=False):
         t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
         with t1:
             c1, c2 = st.columns(2)
             with c1:
-                st.write("**👤 신입 등록**")
-                new_n = st.text_input("이름 입력", key="new_curator")
+                new_n = st.text_input("신입 이름 입력", key="new_curator")
                 if st.button("신규 등록"):
                     st.session_state.user_df = pd.concat([st.session_state.user_df, pd.DataFrame([{"ID": new_n, "Password": "2290"}])], ignore_index=True)
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{new_n}님 등록됨"); st.rerun()
             with c2:
-                st.write("**🗑️ 퇴사자 삭제**")
-                del_target = st.selectbox("삭제할 이름 선택", [u for u in user_db.keys() if u != "박스테반"])
+                del_target = st.selectbox("퇴사자 선택", [u for u in user_db.keys() if u != "박스테반"])
                 if st.button("명단에서 삭제"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
         with t2:
-            st.write("**🔄 고객별 맞춤 인수인계**")
-            src = st.selectbox("업무를 넘길 담당자(기존)", list(user_db.keys()), key="src")
-            tgt = st.selectbox("업무를 받을 담당자(인수)", [u for u in user_db.keys() if u != src], key="tgt")
-            
-            # 해당 담당자의 고객 리스트 멀티 셀렉트로 보여주기
+            src = st.selectbox("업무를 넘길 사람", list(user_db.keys()), key="src")
+            tgt = st.selectbox("업무를 받을 사람", [u for u in user_db.keys() if u != src], key="tgt")
             src_customers = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
             if not src_customers.empty:
-                selected_customers = st.multiselect(
-                    f"{src}님의 고객 리스트 (전달할 고객을 선택하세요)", 
-                    options=src_customers.index.tolist(),
-                    format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})"
-                )
-                
-                if st.button(f"선택한 {len(selected_customers)}명만 {tgt}님에게 이전"):
-                    if selected_customers:
-                        st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
-                        github_action(st.session_state.crm_df, FILE_PATH)
-                        st.success("업무 분배 완료!"); st.rerun()
-                    else:
-                        st.warning("이전할 고객을 선택해주세요.")
-            else:
-                st.info("해당 담당자에게 등록된 고객이 없습니다.")
+                selected_customers = st.multiselect("이전할 고객을 선택하세요", options=src_customers.index.tolist(), format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})")
+                if st.button(f"선택한 {len(selected_customers)}명 이전 실행"):
+                    st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
+                    github_action(st.session_state.crm_df, FILE_PATH); st.success("분배 완료!"); st.rerun()
 
 st.divider()
 
-# --- 8. 고객 등록 및 리스트 (v104 디자인 유지) ---
+# --- 8. 메인 화면 (등록 및 리스트) ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -140,13 +117,13 @@ with col_reg:
             if name:
                 new_row = {"ID": len(st.session_state.crm_df)+1, "고객명": name, "담당자": st.session_state.user_name, "기준일": str(datetime.now().date()), "모델": mdl, "단계": step, "비고": ""}
                 st.session_state.crm_df = pd.concat([st.session_state.crm_df, pd.DataFrame([new_row])], ignore_index=True).fillna("")
-                github_action(st.session_state.crm_df, FILE_PATH); st.success("✅ 저장 완료!"); st.rerun()
+                github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
 
 with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     v_df = st.session_state.crm_df if st.session_state.user_name == "박스테반" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
 
-    with tab1:
+    with tab1: # 계약 현황
         target_con = v_df[v_df['단계'] == "계약완료"]
         for idx, row in target_con.iterrows():
             c1, c2, c3 = st.columns([2, 3, 1.2]) 
@@ -156,19 +133,24 @@ with col_view:
                 st.session_state.crm_df.at[idx, '단계'] = "인도완료"
                 st.session_state.crm_df.at[idx, '기준일'] = str(datetime.now().date())
                 github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
-        st.divider()
-        st.dataframe(target_con, use_container_width=True)
+        st.divider(); st.dataframe(target_con, use_container_width=True)
 
     with tab2: st.dataframe(v_df[v_df['단계'] == "인도완료"], use_container_width=True)
 
-    with tab3: # 사후관리 기능
+    with tab3: # 🛠️ 핵심 수정: 사후관리 날짜 자동 계산
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
-            with st.expander(f"📌 {row['고객명']} ({row['모델']})"):
+            with st.expander(f"📌 {row['고객명']} ({row['모델']}) | 인도일: {row['기준일']}"):
+                try:
+                    base_date = datetime.strptime(str(row['기준일']), "%Y-%m-%d")
+                except:
+                    base_date = datetime.now()
+                
                 cols = st.columns(4)
                 for i, p in enumerate([1, 3, 6, 12]):
                     with cols[i]:
-                        st.write(f"**{p}개월**")
+                        target_date = (base_date + relativedelta(months=p)).strftime("%Y-%m-%d")
+                        st.markdown(f"<div class='date-label'>📅 {p}개월 ({target_date})</div>", unsafe_allow_html=True)
                         s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
                         is_s = st.checkbox("완료", value=bool(row.get(s_col, 0)), key=f"chk_{idx}_{p}")
                         m_txt = st.text_area("내용", value=row.get(m_col, ""), key=f"txt_{idx}_{p}", height=70)
