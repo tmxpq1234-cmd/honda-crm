@@ -6,14 +6,13 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 (팀장님 토큰 및 저장소 직접 매립) ---
+# --- 1. 설정 (팀장님 정보 직접 매립) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
-# 💡 팀장님이 주신 토큰을 코드에 직접 넣었습니다. 이제 Secrets 설정 없이도 작동합니다!
 GITHUB_TOKEN = "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"
 
-# --- 2. 세련된 디자인 설정 ---
+# --- 2. 디자인 설정 ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -27,7 +26,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 데이터 로드/저장 함수 (GitHub API) ---
+# --- 3. 데이터 로드/저장 함수 (안정성 강화) ---
 def load_github_file(path):
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
@@ -39,21 +38,27 @@ def load_github_file(path):
     except: pass
     return pd.DataFrame(), None
 
-def save_github_file(df, path, sha, message="Update CRM Data"):
+def save_github_file(df, path, sha, message="Update"):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     csv_content = df.to_csv(index=False, encoding='utf-8-sig')
     base64_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
     payload = {"message": message, "content": base64_content, "sha": sha}
-    res = requests.put(url, headers=headers, json=payload)
-    return res.status_code
+    requests.put(url, headers=headers, json=payload)
 
-# --- 4. 초기 데이터 로드 ---
+# --- 4. 초기 데이터 로드 (에러 방지용 기본값 설정) ---
 if 'crm_df' not in st.session_state:
     df, sha = load_github_file(FILE_PATH)
-    st.session_state.crm_df, st.session_state.crm_sha = df, sha
+    st.session_state.crm_df = df if not df.empty else pd.DataFrame(columns=["ID", "고객명", "담당자", "기준일", "모델", "단계"])
+    st.session_state.crm_sha = sha
+
+if 'user_df' not in st.session_state:
     udf, usha = load_github_file(USER_FILE)
-    st.session_state.user_df, st.session_state.user_sha = udf, usha
+    # 💡 깃허브에서 못 불러올 경우를 대비해 기본 관리자 계정을 강제로 만듭니다.
+    if udf.empty:
+        udf = pd.DataFrame([{"ID": "박스테반", "Password": "1234"}, {"ID": "김태형", "Password": "2290"}, {"ID": "전유인", "Password": "2290"}, {"ID": "전명현", "Password": "2290"}, {"ID": "이준창", "Password": "2290"}])
+    st.session_state.user_df = udf
+    st.session_state.user_sha = usha
 
 # --- 5. 로그인 시스템 ---
 user_db = dict(zip(st.session_state.user_df['ID'].astype(str), st.session_state.user_df['Password'].astype(str)))
@@ -63,7 +68,7 @@ if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 
 if not st.session_state.logged_in:
     st.markdown('<p class="main-header" style="text-align:center; padding-top:100px;">HONDA CRM ACCESS</p>', unsafe_allow_html=True)
-    u = st.selectbox("사용자 선택", curator_list if curator_list else ["박스테반"])
+    u = st.selectbox("사용자 선택", curator_list)
     p = st.text_input("비밀번호", type="password")
     if st.button("로그인"):
         if user_db.get(u) == p:
@@ -71,17 +76,15 @@ if not st.session_state.logged_in:
         else: st.error("비밀번호를 확인해주세요.")
     st.stop()
 
-# --- 6. 메인 화면 레이아웃 ---
+# --- 6. 메인 화면 ---
 st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
 st.markdown(f'<p class="sub-header">관리자: {st.session_state.user_name}</p>', unsafe_allow_html=True)
 
 with st.sidebar:
     if st.button("🚪 로그아웃"): st.session_state.logged_in = False; st.rerun()
     st.divider()
-    if st.button("🔄 최신 데이터 동기화"): 
-        df, sha = load_github_file(FILE_PATH)
-        st.session_state.crm_df, st.session_state.crm_sha = df, sha
-        st.success("동기화 완료!"); st.rerun()
+    if st.button("🔄 데이터 강제 동기화"): 
+        st.session_state.clear(); st.rerun()
 
 # --- 7. 팀장 전용 도구 (박스테반 전용) ---
 selected_curator = "전체 보기"
@@ -113,7 +116,7 @@ if st.session_state.user_name == "박스테반":
 
 st.divider()
 
-# --- 8. 고객 등록 및 사후관리 ---
+# --- 8. 고객 등록 및 리스트 ---
 col_reg, col_view = st.columns([1, 3])
 
 with col_reg:
@@ -140,27 +143,17 @@ with col_view:
 
     with t_del:
         target_del = view_df[view_df['단계'] == "인도완료"]
-        if target_del.empty: st.info("인도 완료된 고객이 없습니다.")
         for idx, row in target_del.iterrows():
             with st.expander(f"📌 {row['고객명']} ({row['모델']}) | 인도일: {row['기준일']}"):
-                # 사후관리 1, 3, 6, 12개월 완벽 복구
                 base_d = datetime.strptime(str(row['기준일']), '%Y-%m-%d')
                 cols = st.columns(4)
                 for i, p in enumerate([1, 3, 6, 12]):
                     with cols[i]:
                         st.markdown(f"**{p}개월 차**")
-                        st.caption(f"📅 {(base_d + relativedelta(months=p)).strftime('%m/%d')}")
                         s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
-                        is_s = st.checkbox("발송완료", value=bool(row.get(s_col, 0)), key=f"s_{idx}_{p}")
-                        m_txt = st.text_area("메시지 내용", value=row.get(m_col, ""), key=f"m_{idx}_{p}", height=80)
+                        is_s = st.checkbox("완료", value=bool(row.get(s_col, 0)), key=f"s_{idx}_{p}")
+                        m_txt = st.text_area("내용", value=row.get(m_col, ""), key=f"m_{idx}_{p}", height=80)
                         if st.button("저장", key=f"b_{idx}_{p}"):
                             st.session_state.crm_df.at[idx, s_col] = 1 if is_s else 0
                             st.session_state.crm_df.at[idx, m_col] = m_txt
-                            save_github_file(st.session_state.crm_df, FILE_PATH, st.session_state.crm_sha)
-                            st.success("기록 저장됨"); st.rerun()
-                
-                st.divider()
-                note = st.text_area("🗒️ 전체 비고", value=row.get('비고', ""), key=f"note_{idx}")
-                if st.button("비고 저장", key=f"nb_{idx}"):
-                    st.session_state.crm_df.at[idx, '비고'] = note
-                    save_github_file(st.session_state.crm_df, FILE_PATH, st.session_state.crm_sha); st.rerun()
+                            save_github_file(st.session_state.crm_df, FILE_PATH, st.session_state.crm_sha); st.rerun()
