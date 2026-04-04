@@ -82,7 +82,7 @@ df = load_data(CRM_FILE, ["ID", "고객명", "담당자", "기준일", "모델",
 
 # --- 5. 사이드바 ---
 with st.sidebar:
-    st.title(f"👤 {st.session_state.user_name} 팀장님")
+    st.title(f"👤 {st.session_state.user_name}")
     with st.expander("🔐 내 비밀번호 변경"):
         new_pw = st.text_input("새 비밀번호", type="password")
         if st.button("변경 저장"):
