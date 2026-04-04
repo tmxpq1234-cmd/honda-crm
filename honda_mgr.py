@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 (보안 조각 저장 방식 절대 유지) ---
+# --- 1. 설정 (보안 저장 방식 유지) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 (칼 맞춤 및 줄바꿈 방지 유지) ---
+# --- 2. 디자인 ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -23,29 +23,24 @@ st.markdown("""
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
-        .stButton button { 
-            border-radius: 6px; font-weight: 600; white-space: nowrap !important;
-            width: 100% !important; height: 42px !important;
-        }
+        .stButton button { border-radius: 6px; font-weight: 600; height: 42px !important; }
         .date-label { color: #CC0000; font-weight: 700; font-size: 13px; display: block; margin-bottom: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 통신 함수 (날짜순 정렬 저장 로직) ---
+# --- 3. 통신 함수 (날짜순 정렬 저장) ---
 def github_action(df, path):
     if path == FILE_PATH:
         df['temp_date'] = df['인도일'].replace('', '1900-01-01')
         df.loc[df['temp_date'] == '1900-01-01', 'temp_date'] = df['계약일']
         df = df.sort_values(by='temp_date', ascending=False).drop(columns=['temp_date'])
-    
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     res_get = requests.get(url, headers=headers)
     sha = res_get.json().get('sha') if res_get.status_code == 200 else None
     csv_content = df.to_csv(index=False, encoding='utf-8-sig')
     base64_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
-    payload = {"message": f"Update {datetime.now()}", "content": base64_content}
-    if sha: payload["sha"] = sha
+    payload = {"message": f"Update {datetime.now()}", "content": base64_content, "sha": sha} if sha else {"message": f"Update {datetime.now()}", "content": base64_content}
     res_put = requests.put(url, headers=headers, json=payload)
     return res_put.status_code
 
@@ -59,10 +54,8 @@ def load_github_data(path):
     return pd.DataFrame()
 
 # --- 4. 데이터 로드 ---
-if 'crm_df' not in st.session_state:
-    st.session_state.crm_df = load_github_data(FILE_PATH)
-if 'user_df' not in st.session_state:
-    st.session_state.user_df = load_github_data(USER_FILE)
+if 'crm_df' not in st.session_state: st.session_state.crm_df = load_github_data(FILE_PATH)
+if 'user_df' not in st.session_state: st.session_state.user_df = load_github_data(USER_FILE)
 
 # --- 5. 로그인 ---
 user_db = dict(zip(st.session_state.user_df['ID'].astype(str), st.session_state.user_df['Password'].astype(str)))
@@ -82,7 +75,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (인수인계 상세 기능 완벽 복구) ---
+# --- 7. 팀장 도구 (인수인계 상세 포함) ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 및 인수인계)", expanded=False):
         t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
@@ -98,23 +91,22 @@ if st.session_state.user_name == "박스테반":
                 if st.button("명단에서 삭제"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
-        with t2: # 🛠️ 팀장님이 말씀하신 디테일한 인수인계 로직
+        with t2:
             st.write("**🔄 선택형 고객 인수인계**")
             src = st.selectbox("업무를 넘길 담당자", list(user_db.keys()), key="src")
             tgt = st.selectbox("업무를 받을 담당자", [u for u in user_db.keys() if u != src], key="tgt")
-            src_customers = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
-            if not src_customers.empty:
-                selected_customers = st.multiselect("이전할 고객을 선택하세요", options=src_customers.index.tolist(), format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})")
-                if st.button(f"선택한 {len(selected_customers)}명 인수인계 실행"):
-                    if selected_customers:
-                        st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
-                        github_action(st.session_state.crm_df, FILE_PATH)
-                        st.success(f"선택한 고객이 {tgt}님에게 이전되었습니다."); st.rerun()
+            src_cust = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
+            if not src_cust.empty:
+                sel_cust = st.multiselect("이전할 고객 선택", options=src_cust.index.tolist(), format_func=lambda x: f"{src_cust.loc[x, '고객명']} ({src_cust.loc[x, '모델']})")
+                if st.button(f"선택한 {len(sel_cust)}명 인수인계 실행"):
+                    if sel_cust:
+                        st.session_state.crm_df.loc[sel_cust, '담당자'] = tgt
+                        github_action(st.session_state.crm_df, FILE_PATH); st.success("이전 완료!"); st.rerun()
             else: st.info("해당 담당자에게 등록된 고객이 없습니다.")
 
 st.divider()
 
-# --- 8. 고객 등록 ---
+# --- 8. 고객 등록 및 조회 필터 ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -131,10 +123,20 @@ with col_reg:
 
 with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
-    # 🛠️ 팀장 전체 조회 기능 유지
-    v_df = st.session_state.crm_df if st.session_state.user_name == "박스테반" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
+    
+    # 🛠️ 담당자 필터 기능 (팀장 로그인 시 활성화)
+    filter_curator = "전체"
+    if st.session_state.user_name == "박스테반":
+        curator_list = ["전체"] + list(user_db.keys())
+        filter_curator = st.selectbox("🔍 큐레이터별 보기", curator_list)
+    
+    # 데이터 필터링 로직
+    if st.session_state.user_name == "박스테반":
+        v_df = st.session_state.crm_df if filter_curator == "전체" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == filter_curator]
+    else:
+        v_df = st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
 
-    def render_edit(idx, row): # 🛠️ 데이터 전체 수정 기능 유지
+    def render_edit(idx, row): # 데이터 수정 기능
         with st.expander(f"✏️ {row['고객명']} 정보 수정"):
             en = st.text_input("이름", value=row['고객명'], key=f"en_{idx}")
             em = st.selectbox("모델", ["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"], index=["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"].index(row['모델']), key=f"em_{idx}")
@@ -170,7 +172,7 @@ with col_view:
     with tab3: # 사후관리
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
-            with st.expander(f"📅 {row['고객명']} 사후관리 (인도일 기준)"):
+            with st.expander(f"📅 {row['고객명']} 사후관리 스케줄"):
                 try: base_date = datetime.strptime(str(row['인도일']), "%Y-%m-%d")
                 except: base_date = datetime.now()
                 cols = st.columns(4)
