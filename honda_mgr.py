@@ -6,17 +6,17 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 (저장 성공했던 보안 조각 방식 유지) ---
+# --- 1. 설정 (검증된 저장 로직 그대로 유지) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
 
-# 💡 깃허브 자동 차단 방지용 키 조각 (절대 수정 금지)
+# 💡 깃허브 자동 차단 방지용 키 조각 (기존과 동일)
 k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 ---
+# --- 2. 디자인 (버튼 글씨 한 줄 정렬 강화) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -24,19 +24,23 @@ st.markdown("""
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
-        /* 버튼 글씨 줄바꿈 방지 및 디자인 수정 */
+        
+        /* 🛠️ 팀장님, 여기가 버튼 고친 부분입니다! */
         .stButton button { 
             border-radius: 6px; 
             font-weight: 600; 
             transition: all 0.2s; 
-            white-space: nowrap; /* 글씨 줄바꿈 방지 */
-            padding: 0.5rem 1rem; /* 안쪽 여백 조절 */
+            white-space: nowrap !important; /* 글씨 줄바꿈 절대 방지 */
+            width: auto !important;         /* 버튼 폭 자동 조절 */
+            min-width: 140px;               /* 최소 폭 확보 */
+            padding: 0px 20px !important;    /* 옆 여백 넉넉히 */
+            height: 45px;                   /* 버튼 높이 고정 */
         }
         .stButton button:hover { background-color: #CC0000 !important; color: white !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 깃허브 통신 함수 ---
+# --- 3. 깃허브 통신 함수 (수정 없음) ---
 def github_action(df, path):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -58,7 +62,7 @@ def load_github_data(path):
         return pd.read_csv(io.StringIO(content)).fillna("")
     return pd.DataFrame()
 
-# --- 4. 데이터 초기 로드 ---
+# --- 4. 데이터 초기 로드 (수정 없음) ---
 if 'crm_df' not in st.session_state:
     st.session_state.crm_df = load_github_data(FILE_PATH)
     if st.session_state.crm_df.empty:
@@ -79,7 +83,7 @@ if not st.session_state.logged_in:
         if user_db.get(u) == p: st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
     st.stop()
 
-# --- 6. 대시보드 UI ---
+# --- 6. 대시보드 UI (수정 없음) ---
 st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
 with st.sidebar:
     st.write(f"🟢 **{st.session_state.user_name}** 접속 중")
@@ -87,7 +91,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 관리 도구 ---
+# --- 7. 팀장 관리 도구 (퇴사자 삭제 유지) ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 관리)", expanded=False):
         c1, c2 = st.columns(2)
@@ -129,10 +133,10 @@ with col_view:
     with tab1: # 계약 현황 & 상태 변경
         target_con = v_df[v_df['단계'] == "계약완료"]
         for idx, row in target_con.iterrows():
-            c1, c2, c3 = st.columns([2, 2, 1.2]) # 버튼 공간 확보
+            c1, c2, c3 = st.columns([2, 2, 1.5]) # 버튼 공간 좀 더 넓힘
             c1.write(f"**{row['고객명']}** ({row['모델']})")
             c2.caption(f"등록일: {row['기준일']} | 담당: {row['담당자']}")
-            if c3.button("🚚 인도완료 처리", key=f"upd_{idx}"): # 디자인 수정됨
+            if c3.button("🚚 인도완료 처리", key=f"upd_{idx}"):
                 st.session_state.crm_df.at[idx, '단계'] = "인도완료"
                 st.session_state.crm_df.at[idx, '기준일'] = str(datetime.now().date())
                 github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
@@ -151,7 +155,7 @@ with col_view:
                         st.write(f"**{p}개월**")
                         s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
                         is_s = st.checkbox("발송", value=bool(row.get(s_col, 0)), key=f"chk_{idx}_{p}")
-                        m_txt = st.text_area("메메모", value=row.get(m_col, ""), key=f"txt_{idx}_{p}", height=70)
+                        m_txt = st.text_area("내용", value=row.get(m_col, ""), key=f"txt_{idx}_{p}", height=70)
                         if st.button("저장", key=f"sav_{idx}_{p}"):
                             st.session_state.crm_df.at[idx, s_col] = 1 if is_s else 0
                             st.session_state.crm_df.at[idx, m_col] = m_txt
