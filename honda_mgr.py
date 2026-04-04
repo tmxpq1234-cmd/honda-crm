@@ -33,7 +33,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 통신 함수 (최신 날짜순 정렬 저장) ---
+# --- 3. 통신 함수 (날짜순 정렬 저장) ---
 def github_action(df, path):
     if path == FILE_PATH:
         df['temp_date'] = df['인도일'].replace('', '1900-01-01')
@@ -82,7 +82,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (상세 인수인계 확실히 복구) ---
+# --- 7. 팀장 도구 (에러 수정 및 인수인계 복구) ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 및 인수인계)", expanded=False):
         t_insa, t_transfer = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
@@ -99,7 +99,7 @@ if st.session_state.user_name == "박스테반":
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
         
-        with t_transfer: # 🛠️ 팀장님이 말씀하신 체크박스 선택형 상세 인수인계
+        with t_transfer: # 상세 인수인계 기능 복구
             st.write("**🔄 선택형 고객 인수인계**")
             src = st.selectbox("업무를 넘길 담당자", list(user_db.keys()), key="src_user")
             tgt = st.selectbox("업무를 받을 담당자", [u for u in user_db.keys() if u != src], key="tgt_user")
@@ -114,7 +114,7 @@ if st.session_state.user_name == "박스테반":
 
 st.divider()
 
-# --- 8. 고객 리스트 및 조회 필터 ---
+# --- 8. 고객 등록 및 조회 ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -132,7 +132,7 @@ with col_reg:
 with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     
-    # 🛠️ 큐레이터별 필터 박스 복구 (팀장 전용)
+    # 🔍 큐레이터별 필터 박스 (팀장 전용)
     filter_curator = "전체"
     if st.session_state.user_name == "박스테반":
         filter_curator = st.selectbox("🔍 큐레이터별 명단 필터", ["전체"] + list(user_db.keys()), key="filter_box")
@@ -141,6 +141,15 @@ with col_view:
         v_df = st.session_state.crm_df if filter_curator == "전체" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == filter_curator]
     else:
         v_df = st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
+
+    # 🛠️ 첫 번째 줄 순번(Index) 재정렬 로직 추가
+    def get_clean_df(df):
+        df_sorted = df.copy()
+        df_sorted['temp_date'] = df_sorted['인도일'].replace('', '1900-01-01')
+        df_sorted.loc[df_sorted['temp_date'] == '1900-01-01', 'temp_date'] = df_sorted['계약일']
+        df_sorted = df_sorted.sort_values(by='temp_date', ascending=False).drop(columns=['temp_date'])
+        df_sorted.index = range(1, len(df_sorted) + 1) # 순번을 1번부터 새로 매김
+        return df_sorted
 
     def render_edit(idx, row):
         with st.expander(f"✏️ {row['고객명']} 정보 수정"):
@@ -167,16 +176,16 @@ with col_view:
                 st.session_state.crm_df.at[idx, '인도일'] = str(datetime.now().date())
                 github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
             render_edit(idx, row)
-        st.divider(); st.dataframe(target_con, use_container_width=True)
+        st.divider(); st.dataframe(get_clean_df(target_con), use_container_width=True)
 
     with tab2:
         target_ind = v_df[v_df['단계'] == "인도완료"]
         for idx, row in target_ind.iterrows():
             st.markdown(f"**{row['고객명']}** ({row['모델']}) | 인도: {row['인도일']} | 담당: {row['담당자']}")
             render_edit(idx, row)
-        st.divider(); st.dataframe(target_ind, use_container_width=True)
+        st.divider(); st.dataframe(get_clean_df(target_ind), use_container_width=True)
 
-    with tab3:
+    with tab3: # 사후관리
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
             with st.expander(f"📌 {row['고객명']} 사후관리"):
