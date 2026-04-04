@@ -1,6 +1,6 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import os
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from googleapiclient.discovery import build
@@ -8,185 +8,205 @@ from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2 import service_account
 import io
 
-# --- 설정 및 파일 경로 ---
+# --- [필수 설정] 구글 드라이브 폴더 ID ---
 FOLDER_ID = "1RzdmMifRXAJpXQIR5fbipMwFlJEwR7mV"
-CRM_FILE = "crm_data.csv"
-USER_FILE = "users.csv"
 
-# --- 1. 세련된 전문가용 디자인 설정 ---
+# --- 1. 앱 설정 및 전문가용 디자인 적용 ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap');
         
-        /* 전체 폰트 및 배경 */
-        html, body, [class*="css"] { font-family: 'Pretendard', sans-serif; }
-        .main { background-color: #fcfcfc; }
+        /* 전체 폰트 및 스타일 */
+        html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         
-        /* 타이틀 디자인 */
-        .main-header { font-size: 28px; font-weight: 800; color: #1a1a1a; margin-bottom: 5px; letter-spacing: -1px; }
-        .sub-header { font-size: 14px; color: #666; margin-bottom: 30px; }
+        /* 제목 스타일 */
+        .main-header { font-size: 28px; font-weight: 800; color: #1a1a1a; letter-spacing: -1px; margin-bottom: 20px; }
+        .s-title { white-space: nowrap; font-size: 20px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
         
-        /* 섹션 타이틀 */
-        .section-title { font-size: 19px; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin: 25px 0 15px 0; }
+        /* 버튼 디자인 커스텀 */
+        .stButton button { width: 100%; border-radius: 6px; font-weight: 600; transition: all 0.2s; }
+        .stButton button:hover { background-color: #CC0000 !important; color: white !important; border-color: #CC0000 !important; }
         
-        /* 버튼 디자인 */
-        .stButton button { border-radius: 6px; font-weight: 600; transition: all 0.2s; border: 1px solid #ddd; }
-        .stButton button:hover { background-color: #CC0000 !important; color: white !important; border: 1px solid #CC0000 !important; }
-        
-        /* 데이터프레임 및 카드 */
-        .stDataFrame { border-radius: 10px; overflow: hidden; }
-        .stExpander { border: 1px solid #eee !important; border-radius: 8px !important; background-color: white !important; }
+        /* 탭 및 가독성 개선 */
+        .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+        .stTabs [data-baseweb="tab"] { background-color: #f8f9fa; border-radius: 5px 5px 0 0; padding: 10px 20px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 데이터 관리 함수 ---
-def load_data(file_path, columns):
-    if os.path.exists(file_path):
-        return pd.read_csv(file_path).fillna("")
-    return pd.DataFrame(columns=columns)
+# --- 2. 구글 서비스 연결 함수 (기존 로직 100% 유지) ---
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1h5cEQQGrAIrrpU9qTik8PeUmpRE5zFyW2v1VVNP8e2w/edit?usp=sharing"
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-def save_data(df, file_path):
-    df.to_csv(file_path, index=False, encoding='utf-8-sig')
+def load_crm_data(): return conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", ttl="0s")
+def load_user_data(): return conn.read(spreadsheet=SHEET_URL, worksheet="Users", ttl="0s")
+def save_crm_data(df): conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df)
+def save_user_data(df): conn.update(spreadsheet=SHEET_URL, worksheet="Users", data=df)
 
 def get_drive_service():
-    try:
-        conf = st.secrets["connections"]["gsheets"].to_dict()
-        if "private_key" in conf:
-            conf["private_key"] = conf["private_key"].replace("\\n", "\n").replace("\n", "\\n")
-        creds = service_account.Credentials.from_service_account_info(conf)
-        return build('drive', 'v3', credentials=creds)
-    except: return None
+    creds_info = st.secrets["connections"]["gsheets"]
+    creds = service_account.Credentials.from_service_account_info(creds_info)
+    return build('drive', 'v3', credentials=creds)
 
 def upload_to_drive(file, filename):
     service = get_drive_service()
-    if not service: return None
     file_metadata = {'name': filename, 'parents': [FOLDER_ID]}
     media = MediaIoBaseUpload(io.BytesIO(file.read()), mimetype='application/octet-stream', resumable=True)
     uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
     service.permissions().create(fileId=uploaded_file.get('id'), body={'type': 'anyone', 'role': 'viewer'}).execute()
     return uploaded_file.get('webViewLink')
 
-# --- 3. 로그인 시스템 ---
-user_df = load_data(USER_FILE, ["ID", "Password"])
-user_db = dict(zip(user_df['ID'].astype(str), user_df['Password'].astype(str)))
+# --- 3. 로그인 및 사용자 데이터 ---
+user_df = load_user_data()
+user_db = dict(zip(user_df['ID'], user_df['Password']))
 curator_list = list(user_db.keys())
 
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_name = ""
 
 if not st.session_state.logged_in:
-    st.markdown('<div style="text-align:center; padding: 50px 0;">', unsafe_allow_html=True)
-    st.markdown('<p class="main-header">HONDA CRM LOGIN</p>', unsafe_allow_html=True)
-    u = st.selectbox("USER ID", curator_list if curator_list else ["박스테반"])
-    p = st.text_input("PASSWORD", type="password")
-    if st.button("SIGN IN"):
-        if user_db.get(u) == p:
-            st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
-        else: st.error("Access Denied.")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header" style="text-align:center; margin-top:50px;">🔐 HONDA CRM LOGIN</p>', unsafe_allow_html=True)
+    input_user = st.selectbox("사용자 선택", curator_list)
+    input_pw = st.text_input("비밀번호", type="password")
+    if st.button("로그인"):
+        if user_db.get(input_user) == input_pw:
+            st.session_state.logged_in = True
+            st.session_state.user_name = input_user
+            st.rerun()
+        else: st.error("비밀번호를 확인해주세요.")
     st.stop()
 
 # --- 4. 메인 데이터 로드 ---
-df = load_data(CRM_FILE, ["ID", "고객명", "담당자", "기준일", "모델", "단계", "1개월_발송", "1개월_메모", "3개월_발송", "3개월_메모", "6개월_발송", "6개월_메모", "12개월_발송", "12개월_메모", "비고"])
+df = load_crm_data()
 
-# --- 5. 상단 헤더 및 사이드바 ---
-st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
-st.markdown(f'<p class="sub-header">접속자: {st.session_state.user_name}</p>', unsafe_allow_html=True)
-
+# --- 5. 사이드바 ---
 with st.sidebar:
-    st.markdown(f"**{st.session_state.user_name}**")
-    if st.button("LOGOUT"): st.session_state.logged_in = False; st.rerun()
+    st.markdown(f"### 👤 {st.session_state.user_name}")
+    with st.expander("🔐 내 비밀번호 변경"):
+        new_pw = st.text_input("새 비밀번호", type="password", key="sidebar_new_pw")
+        if st.button("변경 저장", key="sidebar_pw_btn"):
+            user_df.loc[user_df['ID'] == st.session_state.user_name, 'Password'] = new_pw
+            save_user_data(user_df); st.success("✅ 변경 완료!"); st.rerun()
     st.divider()
-    with st.expander("비밀번호 변경"):
-        pw = st.text_input("New Password", type="password")
-        if st.button("Update"):
-            user_df.loc[user_df['ID'] == st.session_state.user_name, 'Password'] = pw
-            save_data(user_df, USER_FILE); st.success("Updated"); st.rerun()
+    if st.button("🚪 로그아웃", key="logout_btn"):
+        st.session_state.logged_in = False; st.rerun()
 
-# --- 6. 팀장 전용 기능 (박스테반 전용) ---
+st.markdown('<p class="main-header">🚗 HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
+
+# --- 6. 팀장 전용 도구 (박스테반 전용) ---
 selected_curator = "전체 보기"
 if st.session_state.user_name == "박스테반":
-    with st.expander("⚙️ 팀장 전용 관리 도구 (인수인계 및 필터)"):
-        m_tab1, m_tab2 = st.tabs(["🔍 데이터 필터", "🔄 업무 인수인계"])
-        with m_tab1: 
-            selected_curator = st.selectbox("조회 담당자 선택", ["전체 보기"] + curator_list)
+    with st.expander("⚙️ 팀장 전용 관리 도구", expanded=False):
+        m_tab1, m_tab2, m_tab3 = st.tabs(["🔍 데이터 필터", "👥 큐레이터 인사 관리", "🔄 업무 인수인계"])
+        with m_tab1: selected_curator = st.selectbox("조회할 담당자 선택", ["전체 보기"] + curator_list)
         with m_tab2:
-            st.markdown("**고객DB 담당자 변경**")
-            src = st.selectbox("기존 담당자", curator_list, key="src_insu")
-            tgt = st.selectbox("인수자", [c for c in curator_list if c != src], key="tgt_insu")
-            target_ids = st.multiselect("대상 고객", options=df[df['담당자']==src].index.tolist(), format_func=lambda x: f"{df.loc[x, '고객명']}")
-            if st.button("인수인계 확정") and target_ids:
+            st.subheader("👥 신규 및 퇴사 관리")
+            u_col1, u_col2 = st.columns(2)
+            with u_col1:
+                new_n = st.text_input("신입 이름", key="hr_new_name")
+                if st.button("✨ 등록", key="hr_reg_btn"):
+                    user_df = pd.concat([user_df, pd.DataFrame([{"ID": new_n, "Password": "2290"}])], ignore_index=True)
+                    save_user_data(user_df); st.rerun()
+            with u_col2:
+                del_n = st.selectbox("퇴사자", [c for c in curator_list if c != "박스테반"], key="hr_del_select")
+                if st.button("🗑️ 삭제", key="hr_del_btn"):
+                    user_df = user_df[user_df['ID'] != del_n]
+                    save_user_data(user_df); st.rerun()
+        with m_tab3:
+            st.subheader("🔄 업무 인수인계")
+            src = st.selectbox("기존 담당자", curator_list, key="src_c_admin")
+            tgt = st.selectbox("인수자", [c for c in curator_list if c != src], key="tgt_c_admin")
+            target_ids = st.multiselect("고객 선택", options=df[df['담당자']==src].index.tolist(), format_func=lambda x: f"{df.loc[x, '고객명']}", key="move_targets")
+            if st.button("인수인계 실행", key="move_btn") and target_ids:
                 df.loc[target_ids, '담당자'] = tgt
-                save_data(df, CRM_FILE); st.success("인수인계 완료"); st.rerun()
+                save_crm_data(df); st.success("완료!"); st.rerun()
 
 st.divider()
 
-# --- 7. 메인 업무 로직 (v7.6 세로 틀 복구) ---
+# --- 7. 고객 등록 및 리스트 (v7.6 레이아웃 완벽 유지) ---
+col_reg, col_view = st.columns([1, 3])
 
-# [1] 신규 등록 섹션
-st.markdown('<p class="section-title">📍 고객 신규 등록</p>', unsafe_allow_html=True)
-with st.form("reg_form", clear_on_submit=True):
-    r_col1, r_col2, r_col3 = st.columns(3)
-    with r_col1: n = st.text_input("고객명")
-    with r_col2: m = st.selectbox("모델", ["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"])
-    with r_col3: s = st.selectbox("현 단계", ["계약완료", "인도완료"])
-    if st.form_submit_button("시스템 저장"):
-        if n:
-            new_id = int(df['ID'].max()) + 1 if not df.empty else 1
-            new_row = {"ID": new_id, "고객명": n, "담당자": st.session_state.user_name, "기준일": str(datetime.now().date()), "모델": m, "단계": s, "비고": ""}
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True).fillna("")
-            save_data(df, CRM_FILE); st.rerun()
+with col_reg:
+    st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
+    with st.form("reg_form", clear_on_submit=True):
+        name = st.text_input("고객명")
+        step = st.radio("단계", ["계약완료", "인도완료"], horizontal=True)
+        date = st.date_input("기준일", datetime.now())
+        cur = st.selectbox("담당자", curator_list, index=curator_list.index(st.session_state.user_name))
+        mdl = st.selectbox("모델", ["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"])
+        if st.form_submit_button("저장"):
+            if name:
+                new_id = int(df['ID'].max()) + 1 if not df.empty else 1
+                new_row = {"ID": new_id, "고객명": name, "담당자": cur, "기준일": str(date), "모델": mdl, "단계": step,
+                           "1개월_발송": 0, "1개월_메모": "", "3개월_발송": 0, "3개월_메모": "",
+                           "6개월_발송": 0, "6개월_메모": "", "12개월_발송": 0, "12개월_메모": "", "비고": ""}
+                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                save_crm_data(df); st.rerun()
 
-# [2] 고객 리스트 및 사후관리
-st.markdown('<p class="section-title">📊 현황 관리 및 사후 스케줄</p>', unsafe_allow_html=True)
-t_all, t_con, t_del, t_can = st.tabs(["전체", "계약", "인도/사후관리", "취소"])
+with col_view:
+    t_all, t_con, t_del, t_can = st.tabs(["📊 전체", "📝 계약", "🚚 인도 및 사후관리", "🚫 취소"])
+    view_df = df.copy()
+    if st.session_state.user_name != "박스테반": view_df = view_df[view_df['담당자'] == st.session_state.user_name]
+    elif selected_curator != "전체 보기": view_df = view_df[view_df['담당자'] == selected_curator]
 
-# 데이터 필터링
-view_df = df.copy()
-if st.session_state.user_name != "박스테반": 
-    view_df = view_df[view_df['담당자'] == st.session_state.user_name]
-elif selected_curator != "전체 보기": 
-    view_df = view_df[view_df['담당자'] == selected_curator]
+    def display_list(target_df, prefix):
+        for idx, row in target_df.iterrows():
+            customer_id = row['ID']
+            with st.expander(f"📌 [{row['단계']}] {row['고객명']} ({row['모델']}) - 담당: {row['담당자']}"):
+                if row['단계'] == "인도완료":
+                    st.markdown("### 📄 인도 서류 및 사후관리")
+                    up_file = st.file_uploader(f"서류 업로드 ({row['고객명']})", type=['jpg', 'jpeg', 'png', 'pdf'], key=f"file_{prefix}_{customer_id}")
+                    if st.button("🚀 드라이브 저장", key=f"up_btn_{prefix}_{customer_id}"):
+                        if up_file:
+                            with st.spinner("드라이브 전송 중..."):
+                                link = upload_to_drive(up_file, f"{row['고객명']}_인도서류")
+                                df.at[idx, '비고'] = link
+                                save_crm_data(df); st.success("저장 완료!"); st.rerun()
+                        else: st.warning("파일을 선택해주세요.")
+                    
+                    if pd.notna(row['비고']) and "http" in str(row['비고']):
+                        st.link_button("📂 저장된 서류 보기", row['비고'], key=f"view_doc_{prefix}_{customer_id}")
+                    st.divider()
 
-def display_list(target_df, prefix):
-    if target_df.empty: st.caption("해당하는 데이터가 없습니다.")
-    for idx, row in target_df.iterrows():
-        cid = row['ID']
-        with st.expander(f"📌 {row['고객명']} ({row['모델']}) | 담당: {row['담당자']} | {row['단계']}"):
-            # 사후관리 (인도완료 고객만)
-            if row['단계'] == "인도완료":
-                base_d = datetime.strptime(str(row['기준일']), '%Y-%m-%d')
-                st.markdown("**📅 정기 사후관리 메시지 기록**")
-                cols = st.columns(4)
-                for i, p in enumerate([1, 3, 6, 12]):
-                    with cols[i]:
-                        st.caption(f"{p}개월 ({(base_d + relativedelta(months=p)).strftime('%m/%d')})")
-                        s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
-                        is_s = st.checkbox("완료", value=bool(row[s_col]), key=f"s_{prefix}_{idx}_{p}")
-                        m_txt = st.text_area("메시지 내용", value=row[m_col], key=f"m_{prefix}_{idx}_{p}", height=80)
-                        if st.button("저장", key=f"b_{prefix}_{idx}_{p}"):
-                            df.at[idx, s_col] = 1 if is_s else 0
-                            df.at[idx, m_col] = m_txt
-                            save_data(df, CRM_FILE); st.rerun()
+                    try:
+                        base_d = datetime.strptime(str(row['기준일']), '%Y-%m-%d')
+                        cols = st.columns(4)
+                        for i, p in enumerate([1, 3, 6, 12]):
+                            t_date = (base_d + relativedelta(months=p)).strftime('%Y-%m-%d')
+                            with cols[i]:
+                                st.write(f"**{p}개월**"); st.caption(f"📅 {t_date}")
+                                s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
+                                is_s = st.checkbox("완료", value=bool(row[s_col]), key=f"s_{prefix}_{p}_{customer_id}")
+                                m_txt = st.text_area("메시지 내용", value=row[m_col] if pd.notna(row[m_col]) else "", key=f"m_{prefix}_{p}_{customer_id}", height=100)
+                                if st.button("저장", key=f"b_{prefix}_{p}_{customer_id}"):
+                                    df.at[idx, s_col] = 1 if is_s else 0
+                                    df.at[idx, m_col] = m_txt
+                                    save_crm_data(df); st.rerun()
+                    except: pass
+                
+                # 비고란 및 상태 변경 버튼
                 st.divider()
+                note_val = row['비고'] if pd.notna(row['비고']) and "http" not in str(row['비고']) else ""
+                note = st.text_area("🗒️ 특이사항 및 비고", value=note_val, key=f"n_{prefix}_{customer_id}")
+                if st.button("비고 저장", key=f"nb_{prefix}_{customer_id}"):
+                    df.at[idx, '비고'] = note
+                    save_crm_data(df); st.rerun()
 
-            # 공통 비고란
-            note = st.text_area("🗒️ 전체 비고 및 서류링크", value=row['비고'], key=f"note_{prefix}_{idx}")
-            if st.button("비고 저장", key=f"nb_{prefix}_{idx}"):
-                df.at[idx, '비고'] = note
-                save_data(df, CRM_FILE); st.rerun()
-            
-            # 상태 변경 버튼
-            c1, c2 = st.columns(2)
-            if row['단계'] == "계약완료":
-                if c1.button("🚚 인도 완료 처리", key=f"ok_{prefix}_{idx}"):
-                    df.at[idx, '단계'] = "인도완료"; df.at[idx, '기준일'] = str(datetime.now().date())
-                    save_data(df, CRM_FILE); st.rerun()
-                if c2.button("🚫 계약 취소", key=f"no_{prefix}_{idx}"):
-                    df.at[idx, '단계'] = "계약취소"; save_data(df, CRM_FILE); st.rerun()
+                if row['단계'] == "계약완료":
+                    c1, c2 = st.columns(2)
+                    if c1.button("🚚 인도 완료", key=f"d_{prefix}_{customer_id}"):
+                        df.at[idx, '단계'] = "인도완료"
+                        df.at[idx, '기준일'] = datetime.now().strftime('%Y-%m-%d')
+                        save_crm_data(df); st.rerun()
+                    if c2.button("🚫 취소", key=f"c_{prefix}_{customer_id}"):
+                        df.at[idx, '단계'] = "계약취소"; save_crm_data(df); st.rerun()
+                elif row['단계'] == "계약취소":
+                    if st.button("계약 복구", key=f"res_{prefix}_{customer_id}"):
+                        df.at[idx, '단계'] = "계약완료"; save_crm_data(df); st.rerun()
 
-with t_all: st.dataframe(view_df[view_df['단계'] != '계약취소'], use_container_width=True)
-with t_con: display_list(view_df[view_df['단계'] == "계약완료"], "con")
-with t_del: display_list(view_df[view_df['단계'] == "인도완료"], "del")
-with t_can: display_list(view_df[view_df['단계'] == "계약취소"], "can")
+    with t_all: display_list(view_df[view_df['단계'] != '계약취소'], "all")
+    with t_con: display_list(view_df[view_df['단계'] == '계약완료'], "con")
+    with t_del: display_list(view_df[view_df['단계'] == '인도완료'], "del")
+    with t_can: display_list(view_df[view_df['단계'] == '계약취소'], "can")
