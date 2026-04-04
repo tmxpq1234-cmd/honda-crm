@@ -6,17 +6,16 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 (검증된 저장 로직 그대로 유지) ---
+# --- 1. 설정 (검증된 저장 로직) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
 
-# 💡 깃허브 자동 차단 방지용 키 조각
 k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 (줄 균형 및 버튼 정렬 최적화) ---
+# --- 2. 디자인 (줄 균형 최적화) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -24,20 +23,12 @@ st.markdown("""
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
-        
-        /* 🛠️ 버튼과 텍스트 줄 균형 맞춤 */
         .stButton button { 
             border-radius: 6px; 
             font-weight: 600; 
             white-space: nowrap !important;
-            width: 100% !important; /* 칸에 꽉 차게 */
-            height: 42px !important; /* 높이 조절하여 텍스트와 높이 맞춤 */
-            margin-top: -5px; /* 미세한 수직 위치 조정 */
-        }
-        .customer-row { 
-            display: flex; 
-            align-items: center; /* 수직 중앙 정렬 */
-            padding: 10px 0;
+            width: 100% !important;
+            height: 42px !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -64,7 +55,7 @@ def load_github_data(path):
         return pd.read_csv(io.StringIO(content)).fillna("")
     return pd.DataFrame()
 
-# --- 4. 데이터 초기 로드 ---
+# --- 4. 데이터 로드 ---
 if 'crm_df' not in st.session_state:
     st.session_state.crm_df = load_github_data(FILE_PATH)
     if st.session_state.crm_df.empty:
@@ -93,9 +84,9 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 전용 도구 (인수인계 복구!) ---
+# --- 7. 팀장 도구 (선택형 인수인계 업그레이드) ---
 if st.session_state.user_name == "박스테반":
-    with st.expander("⚙️ 팀장 전용 도구 (인사 및 업무 이전)", expanded=False):
+    with st.expander("⚙️ 팀장 전용 도구 (인사 및 업무 분배)", expanded=False):
         t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
         with t1:
             c1, c2 = st.columns(2)
@@ -112,16 +103,32 @@ if st.session_state.user_name == "박스테반":
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
         with t2:
-            st.write("**🔄 고객 업무 인수인계**")
-            src = st.selectbox("기존 담당자", list(user_db.keys()), key="src")
-            tgt = st.selectbox("인수받을 담당자", [u for u in user_db.keys() if u != src], key="tgt")
-            if st.button("업무 일괄 이전 실행"):
-                st.session_state.crm_df.loc[st.session_state.crm_df['담당자'] == src, '담당자'] = tgt
-                github_action(st.session_state.crm_df, FILE_PATH); st.success(f"{src} → {tgt} 이전 완료!"); st.rerun()
+            st.write("**🔄 고객별 맞춤 인수인계**")
+            src = st.selectbox("업무를 넘길 담당자(기존)", list(user_db.keys()), key="src")
+            tgt = st.selectbox("업무를 받을 담당자(인수)", [u for u in user_db.keys() if u != src], key="tgt")
+            
+            # 해당 담당자의 고객 리스트 멀티 셀렉트로 보여주기
+            src_customers = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
+            if not src_customers.empty:
+                selected_customers = st.multiselect(
+                    f"{src}님의 고객 리스트 (전달할 고객을 선택하세요)", 
+                    options=src_customers.index.tolist(),
+                    format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})"
+                )
+                
+                if st.button(f"선택한 {len(selected_customers)}명만 {tgt}님에게 이전"):
+                    if selected_customers:
+                        st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
+                        github_action(st.session_state.crm_df, FILE_PATH)
+                        st.success("업무 분배 완료!"); st.rerun()
+                    else:
+                        st.warning("이전할 고객을 선택해주세요.")
+            else:
+                st.info("해당 담당자에게 등록된 고객이 없습니다.")
 
 st.divider()
 
-# --- 8. 고객 등록 및 리스트 ---
+# --- 8. 고객 등록 및 리스트 (v104 디자인 유지) ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -154,7 +161,7 @@ with col_view:
 
     with tab2: st.dataframe(v_df[v_df['단계'] == "인도완료"], use_container_width=True)
 
-    with tab3:
+    with tab3: # 사후관리 기능
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
             with st.expander(f"📌 {row['고객명']} ({row['모델']})"):
