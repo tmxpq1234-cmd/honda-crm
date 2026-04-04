@@ -92,7 +92,7 @@ with st.sidebar:
     if st.button("🚪 로그아웃"):
         st.session_state.logged_in = False; st.rerun()
 
-st.title("🚗 Honda 통합 고객 관리 시스템 (v25.0)")
+st.title("🚗 Honda 통합 고객 관리 시스템")
 
 # --- 6. 팀장 전용 도구 (박스테반 팀장님 전용) ---
 selected_curator = "전체 보기"
