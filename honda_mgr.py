@@ -21,6 +21,7 @@ try:
     curator_list = list(user_db.keys())
 except Exception as e:
     st.error("🚨 데이터 연결 실패! Secrets 설정과 구글 시트 공유 권한을 확인하세요.")
+    st.warning(f"🔍 진짜 에러 이유: {e}") # 이 줄을 추가하면 이유가 화면에 뜹니다!
     st.info(f"💡 팁: 서비스 계정 이메일을 새 시트에 '편집자'로 추가하셨나요?")
     st.stop()
 
