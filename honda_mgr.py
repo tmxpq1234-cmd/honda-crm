@@ -6,7 +6,7 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 (보안 저장 방식 절대 유지) ---
+# --- 1. 설정 (보안 저장 방식 유지) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 (이미지 속 버튼 줄바꿈 및 불균형 해결) ---
+# --- 2. 디자인 (버튼 줄바꿈 및 높이 칼맞춤) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -23,25 +23,20 @@ st.markdown("""
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
-        
-        /* 🛠️ 버튼 줄바꿈 방지 및 높이 칼맞춤 */
         .stButton button { 
             border-radius: 6px; font-weight: 600; 
-            white-space: nowrap !important; /* 글씨 줄바꿈 절대 방지 */
+            white-space: nowrap !important;
             width: 100% !important; height: 42px !important;
             display: flex; align-items: center; justify-content: center;
         }
-        .date-label { 
-            color: #CC0000; font-weight: 700; font-size: 13px; 
-            white-space: nowrap !important; display: block; margin-bottom: 8px; 
-        }
+        .date-label { color: #CC0000; font-weight: 700; font-size: 13px; display: block; margin-bottom: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 통신 함수 (날짜순 정렬 저장) ---
+# --- 3. 통신 함수 (최신 날짜순 자동 정렬 저장) ---
 def github_action(df, path):
     if path == FILE_PATH:
-        # 날짜순 정렬: 인도일 우선 -> 계약일 기준 (최신순)
+        # 최신 날짜(인도일 우선, 없으면 계약일)가 맨 위로 오게 정렬
         df['temp_date'] = df['인도일'].replace('', '1900-01-01')
         df.loc[df['temp_date'] == '1900-01-01', 'temp_date'] = df['계약일']
         df = df.sort_values(by='temp_date', ascending=False).drop(columns=['temp_date'])
@@ -80,7 +75,7 @@ if not st.session_state.logged_in:
         if user_db.get(u) == p: st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
     st.stop()
 
-# --- 6. 상단 UI ---
+# --- 6. 대시보드 상단 ---
 st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
 with st.sidebar:
     st.write(f"🟢 **{st.session_state.user_name}** 접속 중")
@@ -88,11 +83,11 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (인수인계 상세 유지) ---
+# --- 7. 팀장 도구 (에러 수정 완료) ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 및 인수인계)", expanded=False):
-        t_ 인사, t_ 인수인계 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
-        with t_ 인사:
+        t_insa, t_transfer = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
+        with t_insa:
             c1, c2 = st.columns(2)
             with c1:
                 new_n = st.text_input("신입 이름 입력", key="new_curator")
@@ -104,8 +99,7 @@ if st.session_state.user_name == "박스테반":
                 if st.button("명단에서 삭제"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
-        with t_ 인수인계:
-            st.write("**🔄 선택형 고객 인수인계**")
+        with t_transfer:
             src = st.selectbox("업무를 넘길 담당자", list(user_db.keys()), key="src")
             tgt = st.selectbox("업무를 받을 담당자", [u for u in user_db.keys() if u != src], key="tgt")
             src_cust = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
@@ -136,12 +130,11 @@ with col_reg:
 with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     
-    # 🛠️ 큐레이터별 필터 박스 (팀장 로그인 시)
+    # 🛠️ 큐레이터별 필터 박스 (팀장 전용)
     filter_curator = "전체"
     if st.session_state.user_name == "박스테반":
-        filter_curator = st.selectbox("🔍 큐레이터별 명단 보기", ["전체"] + list(user_db.keys()))
+        filter_curator = st.selectbox("🔍 큐레이터별 명단 필터", ["전체"] + list(user_db.keys()))
     
-    # 데이터 필터링 (팀장은 전체/선택, 팀원은 본인것만)
     if st.session_state.user_name == "박스테반":
         v_df = st.session_state.crm_df if filter_curator == "전체" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == filter_curator]
     else:
@@ -164,7 +157,7 @@ with col_view:
     with tab1:
         target_con = v_df[v_df['단계'] == "계약완료"]
         for idx, row in target_con.iterrows():
-            c1, c2, c3 = st.columns([2, 3, 1.2]) # 균형 맞춤
+            c1, c2, c3 = st.columns([2, 3, 1.2]) 
             c1.markdown(f"**{row['고객명']}** ({row['모델']})")
             c2.caption(f"등록일: {row['계약일']} | 담당: {row['담당자']}")
             if c3.button("🚚 인도완료", key=f"upd_{idx}"):
@@ -181,7 +174,7 @@ with col_view:
             render_edit(idx, row)
         st.divider(); st.dataframe(target_ind, use_container_width=True)
 
-    with tab3: # 사후관리
+    with tab3:
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
             with st.expander(f"📌 {row['고객명']} 사후관리"):
