@@ -20,13 +20,12 @@ st.markdown("""
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         .main-header { font-size: 32px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 5px; letter-spacing: -1px; }
         .sub-header { font-size: 14px; color: #666; margin-bottom: 25px; }
-        .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
-        .stButton button { border-radius: 6px; font-weight: 600; transition: all 0.2s; }
-        .stButton button:hover { background-color: #CC0000 !important; color: white !important; border-color: #CC0000 !important; }
+        .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 6px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
+        .stButton button { border-radius: 6px; font-weight: 600; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 데이터 로드/저장 함수 (안정성 강화) ---
+# --- 3. 데이터 로드/저장 함수 (SHA 인증 보강) ---
 def load_github_file(path):
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
@@ -38,27 +37,38 @@ def load_github_file(path):
     except: pass
     return pd.DataFrame(), None
 
-def save_github_file(df, path, sha, message="Update"):
+def get_latest_sha(path):
+    """저장 직전에 깃허브에서 최신 인증번호(SHA)를 다시 가져옵니다."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    res = requests.get(url, headers=headers)
+    if res.status_code == 200:
+        return res.json()['sha']
+    return None
+
+def save_github_file(df, path, message="Update"):
+    """최신 SHA를 자동으로 찾아서 저장하는 안전한 방식"""
+    current_sha = get_latest_sha(path)
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     csv_content = df.to_csv(index=False, encoding='utf-8-sig')
     base64_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
-    payload = {"message": message, "content": base64_content, "sha": sha}
+    payload = {"message": message, "content": base64_content}
+    if current_sha:
+        payload["sha"] = current_sha
+    
     requests.put(url, headers=headers, json=payload)
 
-# --- 4. 초기 데이터 로드 (에러 방지용 기본값 설정) ---
+# --- 4. 초기 데이터 로드 ---
 if 'crm_df' not in st.session_state:
     df, sha = load_github_file(FILE_PATH)
     st.session_state.crm_df = df if not df.empty else pd.DataFrame(columns=["ID", "고객명", "담당자", "기준일", "모델", "단계"])
-    st.session_state.crm_sha = sha
 
 if 'user_df' not in st.session_state:
-    udf, usha = load_github_file(USER_FILE)
-    # 💡 깃허브에서 못 불러올 경우를 대비해 기본 관리자 계정을 강제로 만듭니다.
+    udf, sha = load_github_file(USER_FILE)
     if udf.empty:
         udf = pd.DataFrame([{"ID": "박스테반", "Password": "1234"}, {"ID": "김태형", "Password": "2290"}, {"ID": "전유인", "Password": "2290"}, {"ID": "전명현", "Password": "2290"}, {"ID": "이준창", "Password": "2290"}])
     st.session_state.user_df = udf
-    st.session_state.user_sha = usha
 
 # --- 5. 로그인 시스템 ---
 user_db = dict(zip(st.session_state.user_df['ID'].astype(str), st.session_state.user_df['Password'].astype(str)))
@@ -73,7 +83,6 @@ if not st.session_state.logged_in:
     if st.button("로그인"):
         if user_db.get(u) == p:
             st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
-        else: st.error("비밀번호를 확인해주세요.")
     st.stop()
 
 # --- 6. 메인 화면 ---
@@ -83,36 +92,31 @@ st.markdown(f'<p class="sub-header">관리자: {st.session_state.user_name}</p>'
 with st.sidebar:
     if st.button("🚪 로그아웃"): st.session_state.logged_in = False; st.rerun()
     st.divider()
-    if st.button("🔄 데이터 강제 동기화"): 
-        st.session_state.clear(); st.rerun()
+    if st.button("🔄 데이터 강제 동기화"): st.session_state.clear(); st.rerun()
 
 # --- 7. 팀장 전용 도구 (박스테반 전용) ---
-selected_curator = "전체 보기"
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 관리 도구", expanded=False):
-        m_tab1, m_tab2, m_tab3 = st.tabs(["🔍 필터", "👥 인사 관리", "🔄 인수인계"])
-        with m_tab1: selected_curator = st.selectbox("조회 담당자", ["전체 보기"] + curator_list)
-        with m_tab2:
-            c_col1, c_col2 = st.columns(2)
-            with c_col1:
+        m_tab1, m_tab2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
+        with m_tab1:
+            c1, c2 = st.columns(2)
+            with c1:
                 new_n = st.text_input("신입 이름")
                 if st.button("✨ 신입 등록"):
                     new_user = pd.DataFrame([{"ID": new_n, "Password": "2290"}])
                     st.session_state.user_df = pd.concat([st.session_state.user_df, new_user], ignore_index=True)
-                    save_github_file(st.session_state.user_df, USER_FILE, st.session_state.user_sha)
-                    st.success(f"{new_n} 등록됨"); st.rerun()
-            with c_col2:
+                    save_github_file(st.session_state.user_df, USER_FILE); st.success("등록됨"); st.rerun()
+            with c2:
                 del_n = st.selectbox("퇴사자 삭제", [c for c in curator_list if c != "박스테반"])
                 if st.button("🗑️ 삭제 실행"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_n]
-                    save_github_file(st.session_state.user_df, USER_FILE, st.session_state.user_sha)
-                    st.rerun()
-        with m_tab3:
+                    save_github_file(st.session_state.user_df, USER_FILE); st.rerun()
+        with m_tab2:
             src = st.selectbox("기존 담당", curator_list); tgt = st.selectbox("인수자", [c for c in curator_list if c != src])
             target_ids = st.multiselect("고객 선택", options=st.session_state.crm_df[st.session_state.crm_df['담당자']==src].index.tolist(), format_func=lambda x: f"{st.session_state.crm_df.loc[x, '고객명']}")
             if st.button("인수인계 실행") and target_ids:
                 st.session_state.crm_df.loc[target_ids, '담당자'] = tgt
-                save_github_file(st.session_state.crm_df, FILE_PATH, st.session_state.crm_sha); st.rerun()
+                save_github_file(st.session_state.crm_df, FILE_PATH); st.rerun()
 
 st.divider()
 
@@ -129,14 +133,12 @@ with col_reg:
             if name:
                 new_row = {"ID": len(st.session_state.crm_df)+1, "고객명": name, "담당자": st.session_state.user_name, "기준일": str(datetime.now().date()), "모델": mdl, "단계": step}
                 st.session_state.crm_df = pd.concat([st.session_state.crm_df, pd.DataFrame([new_row])], ignore_index=True).fillna("")
-                save_github_file(st.session_state.crm_df, FILE_PATH, st.session_state.crm_sha)
-                st.success(f"{name} 등록 완료!"); st.rerun()
+                save_github_file(st.session_state.crm_df, FILE_PATH); st.success("등록 완료!"); st.rerun()
 
 with col_view:
     t_all, t_del = st.tabs(["📊 현황 목록", "🚚 인도 및 사후관리"])
     df = st.session_state.crm_df
     view_df = df if st.session_state.user_name == "박스테반" else df[df['담당자'] == st.session_state.user_name]
-    if selected_curator != "전체 보기": view_df = view_df[view_df['담당자'] == selected_curator]
 
     with t_all:
         st.dataframe(view_df[view_df['단계'] != '계약취소'], use_container_width=True)
@@ -152,8 +154,8 @@ with col_view:
                         st.markdown(f"**{p}개월 차**")
                         s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
                         is_s = st.checkbox("완료", value=bool(row.get(s_col, 0)), key=f"s_{idx}_{p}")
-                        m_txt = st.text_area("내용", value=row.get(m_col, ""), key=f"m_{idx}_{p}", height=80)
+                        m_txt = st.text_area("메시지", value=row.get(m_col, ""), key=f"m_{idx}_{p}", height=80)
                         if st.button("저장", key=f"b_{idx}_{p}"):
                             st.session_state.crm_df.at[idx, s_col] = 1 if is_s else 0
                             st.session_state.crm_df.at[idx, m_col] = m_txt
-                            save_github_file(st.session_state.crm_df, FILE_PATH, st.session_state.crm_sha); st.rerun()
+                            save_github_file(st.session_state.crm_df, FILE_PATH); st.rerun()
