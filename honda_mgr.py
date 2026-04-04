@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 st.set_page_config(page_title="Honda CRM v9.0 Final", layout="wide")
 
 # [중요] 팀장님의 구글 시트 기반 주소 (공개 설정 필수)
-SHEET_BASE = "https://docs.google.com/spreadsheets/d/1h5cEQQGrAIrrpU9qTik8PeUmpRE5zFyW2v1VVNP8e2w/edit?gid=0#gid=0"
+SHEET_BASE = "https://docs.google.com/spreadsheets/d/1h5cEQQGrAIrrpU9qTik8PeUmpRE5zFyW2v1VVNP8e2w"
 CRM_URL = f"{SHEET_BASE}/gviz/tq?tqx=out:csv&sheet=Sheet1"
 USER_URL = f"{SHEET_BASE}/gviz/tq?tqx=out:csv&sheet=Users"
 
