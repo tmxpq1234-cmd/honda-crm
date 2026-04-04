@@ -6,30 +6,32 @@ import io
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-# --- 1. 설정 ---
+# --- 1. 설정 (팀장님 전용) ---
 GITHUB_REPO = "tmxpq1234-cmd/honda-crm"
 FILE_PATH = "crm_data.csv"
 USER_FILE = "users.csv"
-# 💡 여기에 방금 복사한 번호를 따옴표 안에 붙여넣으세요!
+# 💡 마스터 키 (깃허브 허용 확인 후 작동)
 GITHUB_TOKEN = "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"
 
-# --- 2. 디자인 ---
+# --- 2. 디자인 (Pretendard 서체 및 세련된 레이아웃) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap');
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
-        .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; }
+        .main-header { font-size: 32px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 5px; }
+        .sub-header { font-size: 14px; color: #666; margin-bottom: 20px; }
+        .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
+        .stButton button { border-radius: 6px; font-weight: 600; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 저장 함수 (SHA 자동 처리) ---
+# --- 3. 깃허브 강제 저장 함수 ---
 def github_action(df, path):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     res_get = requests.get(url, headers=headers)
     sha = res_get.json().get('sha') if res_get.status_code == 200 else None
-    
     csv_content = df.to_csv(index=False, encoding='utf-8-sig')
     base64_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
     payload = {"message": f"Update {datetime.now()}", "content": base64_content}
@@ -37,24 +39,98 @@ def github_action(df, path):
     res_put = requests.put(url, headers=headers, json=payload)
     return res_put.status_code
 
-# --- 데이터 로드 및 앱 시작 ---
-if 'crm_df' not in st.session_state:
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{FILE_PATH}"
-    res = requests.get(url, headers={"Authorization": f"token {GITHUB_TOKEN}"})
+def load_github_data(path):
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    res = requests.get(url, headers=headers)
     if res.status_code == 200:
         content = base64.b64decode(res.json()['content']).decode('utf-8-sig')
-        st.session_state.crm_df = pd.read_csv(io.StringIO(content)).fillna("")
-    else:
-        st.session_state.crm_df = pd.DataFrame(columns=["ID", "고객명", "담당자", "기준일", "모델", "단계", "비고"])
+        return pd.read_csv(io.StringIO(content)).fillna("")
+    return pd.DataFrame()
 
-# --- (이하 고객 등록 및 리스트 코드는 동일합니다) ---
-st.markdown('<p class="main-header">🚗 HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
-name = st.text_input("신규 고객명")
-if st.button("시스템 저장"):
-    new_row = {"ID": len(st.session_state.crm_df)+1, "고객명": name, "담당자": "박스테반", "기준일": str(datetime.now().date()), "모델": "ACCORD", "단계": "계약완료"}
-    st.session_state.crm_df = pd.concat([st.session_state.crm_df, pd.DataFrame([new_row])], ignore_index=True).fillna("")
-    status = github_action(st.session_state.crm_df, FILE_PATH)
-    if status in [200, 201]: st.success("✅ 깃허브 저장 성공!"); st.rerun()
-    else: st.error(f"❌ 실패 (코드 {status})")
+# --- 4. 데이터 초기화 ---
+if 'crm_df' not in st.session_state:
+    df = load_github_data(FILE_PATH)
+    if df.empty:
+        df = pd.DataFrame(columns=["ID", "고객명", "담당자", "기준일", "모델", "단계", "비고"])
+    st.session_state.crm_df = df
 
-st.dataframe(st.session_state.crm_df, use_container_width=True)
+if 'user_df' not in st.session_state:
+    udf = load_github_data(USER_FILE)
+    if udf.empty:
+        udf = pd.DataFrame([{"ID": "박스테반", "Password": "1234"}, {"ID": "김태형", "Password": "2290"}, {"ID": "전유인", "Password": "2290"}, {"ID": "전명현", "Password": "2290"}, {"ID": "이준창", "Password": "2290"}])
+    st.session_state.user_df = udf
+
+# --- 5. 로그인 ---
+user_db = dict(zip(st.session_state.user_df['ID'].astype(str), st.session_state.user_df['Password'].astype(str)))
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if not st.session_state.logged_in:
+    st.markdown('<p class="main-header" style="text-align:center; padding-top:100px;">🚗 HONDA CRM LOGIN</p>', unsafe_allow_html=True)
+    u = st.selectbox("사용자 선택", list(user_db.keys())); p = st.text_input("비밀번호", type="password")
+    if st.button("접속"):
+        if user_db.get(u) == p: st.session_state.logged_in = True; st.session_state.user_name = u; st.rerun()
+    st.stop()
+
+# --- 6. 메인 화면 UI ---
+st.markdown('<p class="main-header">HONDA 통합 고객 관리 시스템</p>', unsafe_allow_html=True)
+with st.sidebar:
+    st.write(f"🟢 **{st.session_state.user_name}** 접속 중")
+    if st.button("🚪 로그아웃"): st.session_state.logged_in = False; st.rerun()
+    st.divider()
+    if st.button("🔄 서버 데이터 동기화"): st.session_state.clear(); st.rerun()
+
+# --- 7. 팀장 전용 도구 (인사/인수인계) ---
+if st.session_state.user_name == "박스테반":
+    with st.expander("⚙️ 팀장 전용 관리", expanded=False):
+        t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
+        with t1:
+            new_n = st.text_input("신입 큐레이터 성함")
+            if st.button("신규 등록"):
+                st.session_state.user_df = pd.concat([st.session_state.user_df, pd.DataFrame([{"ID": new_n, "Password": "2290"}])], ignore_index=True)
+                github_action(st.session_state.user_df, USER_FILE); st.success(f"{new_n}님 등록됨"); st.rerun()
+        with t2:
+            src = st.selectbox("기존 담당", list(user_db.keys())); tgt = st.selectbox("인수자", [u for u in user_db.keys() if u != src])
+            target_ids = st.multiselect("대상 고객", options=st.session_state.crm_df[st.session_state.crm_df['담당자']==src].index.tolist(), format_func=lambda x: f"{st.session_state.crm_df.loc[x, '고객명']}")
+            if st.button("업무 이전 실행") and target_ids:
+                st.session_state.crm_df.loc[target_ids, '담당자'] = tgt
+                github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
+
+st.divider()
+
+# --- 8. 업무 레이아웃 (등록 및 리스트) ---
+col_reg, col_view = st.columns([1, 3])
+with col_reg:
+    st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
+    with st.form("reg", clear_on_submit=True):
+        name = st.text_input("고객명")
+        mdl = st.selectbox("모델", ["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"])
+        step = st.radio("진행 단계", ["계약완료", "인도완료"], horizontal=True)
+        if st.form_submit_button("시스템 저장"):
+            if name:
+                new_row = {"ID": len(st.session_state.crm_df)+1, "고객명": name, "담당자": st.session_state.user_name, "기준일": str(datetime.now().date()), "모델": mdl, "단계": step}
+                st.session_state.crm_df = pd.concat([st.session_state.crm_df, pd.DataFrame([new_row])], ignore_index=True).fillna("")
+                code = github_action(st.session_state.crm_df, FILE_PATH)
+                if code in [200, 201]: st.success("✅ 저장 성공!"); st.rerun()
+                else: st.error(f"❌ 실패 (코드 {code})")
+
+with col_view:
+    tab1, tab2 = st.tabs(["📊 전체 현황", "🚚 인도 및 사후관리"])
+    df = st.session_state.crm_df
+    v_df = df if st.session_state.user_name == "박스테반" else df[df['담당자'] == st.session_state.user_name]
+    with tab1: st.dataframe(v_df[v_df['단계'] != '계약취소'], use_container_width=True)
+    with tab2:
+        for idx, row in v_df[v_df['단계'] == "인도완료"].iterrows():
+            with st.expander(f"📌 {row['고객명']} ({row['모델']}) | {row['기준일']}"):
+                # 사후관리 1, 3, 6, 12개월 완벽 복구
+                base_d = datetime.strptime(str(row['기준일']), '%Y-%m-%d')
+                cols = st.columns(4)
+                for i, p in enumerate([1, 3, 6, 12]):
+                    with cols[i]:
+                        st.write(f"**{p}개월**")
+                        s_col, m_col = f"{p}개월_발송", f"{p}개월_메모"
+                        is_s = st.checkbox("발송", value=bool(row.get(s_col, 0)), key=f"c_{idx}_{p}")
+                        m_txt = st.text_area("내용", value=row.get(m_col, ""), key=f"m_{idx}_{p}", height=70)
+                        if st.button("저장", key=f"s_{idx}_{p}"):
+                            st.session_state.crm_df.at[idx, s_col] = 1 if is_s else 0
+                            st.session_state.crm_df.at[idx, m_col] = m_txt
+                            github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
