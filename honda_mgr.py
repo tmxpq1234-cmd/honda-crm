@@ -12,7 +12,7 @@ import io
 FOLDER_ID = "1RzdmMifRXAJpXQIR5fbipMwFlJEwR7mV"
 
 # --- 1. 앱 설정 ---
-st.set_page_config(page_title="Honda CRM v7.6 Final", layout="wide")
+st.set_page_config(page_title="Honda CRM v7.7 Final", layout="wide")
 
 st.markdown("""
     <style>
@@ -24,41 +24,39 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 구글 서비스 연결 설정 (똑똑한 한 줄 전략 반영) ---
+# --- 2. 구글 서비스 연결 설정 (PEM 파일 규칙 자동 해결 로직) ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1h5cEQQGrAIrrpU9qTik8PeUmpRE5zFyW2v1VVNP8e2w/edit?usp=sharing"
 
-try:
-    # Secrets에서 데이터를 가져와서 \n(줄바꿈) 문자를 실제 엔터로 변환합니다.
-    # 이 작업이 팀장님이 찾으신 PEM 파일 규칙(64자 등)을 기계가 자동으로 맞추게 해줍니다.
-    raw_conf = st.secrets["connections"]["gsheets"].to_dict()
-    if "\\n" in raw_conf["private_key"]:
-        raw_conf["private_key"] = raw_conf["private_key"].replace("\\n", "\n")
-    
-    conn = st.connection("gsheets", **raw_conf)
-except Exception as e:
-    st.error(f"❌ 연결 초기화 오류: {e}")
-    st.info("💡 찌니의 조언: Secrets의 private_key가 한 줄 버전인지 다시 확인해 주세요!")
-    st.stop()
+@st.cache_resource
+def get_connection():
+    try:
+        # Secrets 데이터를 딕셔너리로 가져옵니다.
+        raw_conf = st.secrets["connections"]["gsheets"].to_dict()
+        
+        # [핵심 수정] PEM 파일의 줄바꿈(\n) 문제를 기계가 자동으로 해결하도록 합니다.
+        if "private_key" in raw_conf:
+            # 역슬래시 n을 진짜 엔터로 바꾸고 앞뒤 공백을 제거하여 64자 규칙 에러를 방지합니다.
+            raw_conf["private_key"] = raw_conf["private_key"].replace("\\n", "\n").strip()
+        
+        # GSheetsConnection을 직접 명시하여 'service_account' 인식 오류를 방지합니다.
+        return st.connection("gsheets", type=GSheetsConnection, **raw_conf)
+    except Exception as e:
+        st.error(f"❌ 연결 초기화 오류: {e}")
+        st.stop()
 
-# 데이터 로드 함수
-def load_crm_data(): 
-    return conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", ttl="0s")
+conn = get_connection()
 
-def load_user_data(): 
-    return conn.read(spreadsheet=SHEET_URL, worksheet="Users", ttl="0s")
+# 데이터 로드/저장 함수
+def load_crm_data(): return conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", ttl="0s")
+def load_user_data(): return conn.read(spreadsheet=SHEET_URL, worksheet="Users", ttl="0s")
+def save_crm_data(df): conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df)
+def save_user_data(df): conn.update(spreadsheet=SHEET_URL, worksheet="Users", data=df)
 
-def save_crm_data(df): 
-    conn.update(spreadsheet=SHEET_URL, worksheet="Sheet1", data=df)
-
-def save_user_data(df): 
-    conn.update(spreadsheet=SHEET_URL, worksheet="Users", data=df)
-
-# 구글 드라이브 서비스 인증
+# 구글 드라이브 서비스 인증 (세척된 키 사용)
 def get_drive_service():
-    creds_info = st.secrets["connections"]["gsheets"].to_dict()
-    if "\\n" in creds_info["private_key"]:
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-    creds = service_account.Credentials.from_service_account_info(creds_info)
+    conf = st.secrets["connections"]["gsheets"].to_dict()
+    conf["private_key"] = conf["private_key"].replace("\\n", "\n").strip()
+    creds = service_account.Credentials.from_service_account_info(conf)
     return build('drive', 'v3', credentials=creds)
 
 # 파일 업로드 함수
@@ -92,8 +90,7 @@ if not st.session_state.logged_in:
             st.session_state.logged_in = True
             st.session_state.user_name = input_user
             st.rerun()
-        else: 
-            st.error("비밀번호 불일치")
+        else: st.error("비밀번호 불일치")
     st.stop()
 
 # --- 4. 메인 데이터 로드 ---
