@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 ---
+# --- 2. 디자인 (이미지 속 줄 깨짐 현상 완벽 수정) ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -23,11 +23,22 @@ st.markdown("""
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; }
         .main-header { font-size: 28px !important; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
         .s-title { font-size: 18px !important; font-weight: 700; color: #222; border-left: 5px solid #CC0000; padding-left: 12px; margin-bottom: 15px; }
+        
+        /* 🛠️ 버튼 디자인 & 줄바꿈 방지 */
         .stButton button { 
             border-radius: 6px; font-weight: 600; white-space: nowrap !important;
             width: 100% !important; height: 42px !important;
+            display: flex; align-items: center; justify-content: center;
         }
-        .date-label { color: #CC0000; font-weight: 700; font-size: 14px; margin-bottom: 5px; }
+        
+        /* 📅 사후관리 날짜 라벨 (줄바꿈 방지 정밀 수정) */
+        .date-label { 
+            color: #CC0000; font-weight: 700; font-size: 13px; 
+            white-space: nowrap !important; /* 날짜 줄바꿈 방지 */
+            margin-bottom: 8px;
+            line-height: 1.2;
+            display: block;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -59,7 +70,7 @@ if 'crm_df' not in st.session_state:
 if 'user_df' not in st.session_state:
     st.session_state.user_df = load_github_data(USER_FILE)
 
-# --- 5. 로그인 섹션 (박스테반 팀장님 및 팀원) ---
+# --- 5. 로그인 ---
 user_db = dict(zip(st.session_state.user_df['ID'].astype(str), st.session_state.user_df['Password'].astype(str)))
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if not st.session_state.logged_in:
@@ -77,7 +88,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (인사관리 및 선택형 인수인계) ---
+# --- 7. 팀장 도구 (인수인계 기능 복구) ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 및 업무 분배)", expanded=False):
         t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
@@ -105,7 +116,7 @@ if st.session_state.user_name == "박스테반":
 
 st.divider()
 
-# --- 8. 메인 화면 (등록 및 리스트) ---
+# --- 8. 고객 등록 및 리스트 ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -123,12 +134,14 @@ with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     v_df = st.session_state.crm_df if st.session_state.user_name == "박스테반" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
 
-    with tab1: # 계약 현황
+    with tab1: # 계약 현황 & 줄 맞춤 정렬
         target_con = v_df[v_df['단계'] == "계약완료"]
         for idx, row in target_con.iterrows():
             c1, c2, c3 = st.columns([2, 3, 1.2]) 
-            c1.markdown(f"**{row['고객명']}** \n<small>{row['모델']}</small>", unsafe_allow_html=True)
-            c2.caption(f"등록일: {row['기준일']} | 담당: {row['담당자']}")
+            with c1:
+                st.markdown(f"<div style='padding-top:5px;'><strong>{row['고객명']}</strong><br><small>{row['모델']}</small></div>", unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"<div style='padding-top:10px; color:#666; font-size:13px;'>등록일: {row['기준일']} | 담당: {row['담당자']}</div>", unsafe_allow_html=True)
             if c3.button("🚚 인도완료", key=f"upd_{idx}"):
                 st.session_state.crm_df.at[idx, '단계'] = "인도완료"
                 st.session_state.crm_df.at[idx, '기준일'] = str(datetime.now().date())
@@ -137,14 +150,12 @@ with col_view:
 
     with tab2: st.dataframe(v_df[v_df['단계'] == "인도완료"], use_container_width=True)
 
-    with tab3: # 🛠️ 핵심 수정: 사후관리 날짜 자동 계산
+    with tab3: # 사후관리 (이미지 속 날짜 줄 깨짐 해결)
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
             with st.expander(f"📌 {row['고객명']} ({row['모델']}) | 인도일: {row['기준일']}"):
-                try:
-                    base_date = datetime.strptime(str(row['기준일']), "%Y-%m-%d")
-                except:
-                    base_date = datetime.now()
+                try: base_date = datetime.strptime(str(row['기준일']), "%Y-%m-%d")
+                except: base_date = datetime.now()
                 
                 cols = st.columns(4)
                 for i, p in enumerate([1, 3, 6, 12]):
