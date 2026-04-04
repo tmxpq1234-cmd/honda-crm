@@ -24,18 +24,17 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. 구글 서비스 연결 설정 (핵심 수정 구간) ---
+# --- 2. 구글 서비스 연결 설정 (연결 에러 해결 핵심 구간) ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1h5cEQQGrAIrrpU9qTik8PeUmpRE5zFyW2v1VVNP8e2w/edit?usp=sharing"
 
-# [중요] Secrets의 데이터를 직접 주입하여 연결 안정성을 높입니다.
 try:
-    conf = st.secrets["connections"]["gsheets"]
-    conn = st.connection("gsheets", **conf)
+    # [수정포인트] type=GSheetsConnection을 직접 명시하여 Invalid Connection 에러를 방지합니다.
+    conn = st.connection("gsheets", type=GSheetsConnection)
 except Exception as e:
-    st.error(f"❌ Secrets 설정 오류: {e}")
+    st.error(f"❌ 연결 초기화 오류: {e}")
     st.stop()
 
-# 데이터 로드 함수
+# 데이터 로드 함수 (st-gsheets-connection 최신 규격 반영)
 def load_crm_data(): 
     return conn.read(spreadsheet=SHEET_URL, worksheet="Sheet1", ttl="0s")
 
@@ -50,6 +49,7 @@ def save_user_data(df):
 
 # 구글 드라이브 서비스 인증
 def get_drive_service():
+    # Secrets에서 직접 정보를 가져와 인증서를 생성합니다.
     creds_info = st.secrets["connections"]["gsheets"]
     creds = service_account.Credentials.from_service_account_info(creds_info)
     return build('drive', 'v3', credentials=creds)
@@ -69,7 +69,7 @@ try:
     user_db = dict(zip(user_df['ID'], user_df['Password']))
     curator_list = list(user_db.keys())
 except Exception as e:
-    st.error(f"⚠️ 'Users' 탭 로드 실패: {e}")
+    st.error(f"⚠️ 'Users' 탭 로드 실패 (Secrets 또는 시트 확인 필요): {e}")
     st.stop()
 
 if 'logged_in' not in st.session_state:
