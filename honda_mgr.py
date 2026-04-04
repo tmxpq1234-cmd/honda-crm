@@ -30,7 +30,7 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1h5cEQQGrAIrrpU9qTik8PeUmpRE
 # [중요] Secrets의 데이터를 직접 주입하여 연결 안정성을 높입니다.
 try:
     conf = st.secrets["connections"]["gsheets"]
-    conn = st.connection("gsheets", type=GSheetsConnection, **conf)
+    conn = st.connection("gsheets", **conf)
 except Exception as e:
     st.error(f"❌ Secrets 설정 오류: {e}")
     st.stop()
