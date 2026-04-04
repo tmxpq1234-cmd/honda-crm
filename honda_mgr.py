@@ -15,7 +15,7 @@ k1 = "ghp_fX61tF2hEH21Z"
 k2 = "TMhTgKvBWtZA0Plxg3RRQd2"
 GITHUB_TOKEN = k1 + k2 
 
-# --- 2. 디자인 (v107~108의 칼 맞춤 및 줄바꿈 방지 유지) ---
+# --- 2. 디자인 ---
 st.set_page_config(page_title="HONDA CRM", layout="wide")
 st.markdown("""
     <style>
@@ -27,16 +27,18 @@ st.markdown("""
             border-radius: 6px; font-weight: 600; white-space: nowrap !important;
             width: 100% !important; height: 42px !important;
         }
-        .date-label { 
-            color: #CC0000; font-weight: 700; font-size: 13px; 
-            white-space: nowrap !important; margin-bottom: 8px; display: block;
-        }
-        .info-text { font-size: 13px; color: #666; }
+        .date-label { color: #CC0000; font-weight: 700; font-size: 13px; display: block; margin-bottom: 8px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 통신 함수 ---
+# --- 3. 통신 함수 (날짜순 정렬 로직 추가) ---
 def github_action(df, path):
+    # 저장 전 날짜순 정렬 (인도일 우선, 없으면 계약일 기준 최신순)
+    if path == FILE_PATH:
+        df['temp_date'] = df['인도일'].replace('', '1900-01-01')
+        df.loc[df['temp_date'] == '1900-01-01', 'temp_date'] = df['계약일']
+        df = df.sort_values(by='temp_date', ascending=False).drop(columns=['temp_date'])
+    
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
     res_get = requests.get(url, headers=headers)
@@ -60,10 +62,6 @@ def load_github_data(path):
 # --- 4. 데이터 로드 ---
 if 'crm_df' not in st.session_state:
     st.session_state.crm_df = load_github_data(FILE_PATH)
-    cols = st.session_state.crm_df.columns
-    if "계약일" not in cols: st.session_state.crm_df["계약일"] = ""
-    if "인도일" not in cols: st.session_state.crm_df["인도일"] = ""
-
 if 'user_df' not in st.session_state:
     st.session_state.user_df = load_github_data(USER_FILE)
 
@@ -85,7 +83,7 @@ with st.sidebar:
     st.divider()
     if st.button("🔄 전체 동기화"): st.session_state.clear(); st.rerun()
 
-# --- 7. 팀장 도구 (인수인계 상세 기능 복구 완료) ---
+# --- 7. 팀장 도구 ---
 if st.session_state.user_name == "박스테반":
     with st.expander("⚙️ 팀장 전용 도구 (인사 및 인수인계)", expanded=False):
         t1, t2 = st.tabs(["👥 인사 관리", "🔄 업무 인수인계"])
@@ -101,26 +99,19 @@ if st.session_state.user_name == "박스테반":
                 if st.button("명단에서 삭제"):
                     st.session_state.user_df = st.session_state.user_df[st.session_state.user_df['ID'] != del_target]
                     github_action(st.session_state.user_df, USER_FILE); st.success(f"{del_target}님 삭제 완료"); st.rerun()
-        
-        with t2: # 🛠️ 복구된 상세 인수인계 기능
-            st.write("**🔄 선택형 고객 인수인계**")
+        with t2:
             src = st.selectbox("업무를 넘길 담당자", list(user_db.keys()), key="src")
             tgt = st.selectbox("업무를 받을 담당자", [u for u in user_db.keys() if u != src], key="tgt")
-            
-            src_customers = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
-            if not src_customers.empty:
-                selected_customers = st.multiselect("이전할 고객을 선택하세요", options=src_customers.index.tolist(), format_func=lambda x: f"{src_customers.loc[x, '고객명']} ({src_customers.loc[x, '모델']})")
-                if st.button(f"선택한 {len(selected_customers)}명 인수인계 실행"):
-                    if selected_customers:
-                        st.session_state.crm_df.loc[selected_customers, '담당자'] = tgt
-                        github_action(st.session_state.crm_df, FILE_PATH)
-                        st.success(f"{len(selected_customers)}명의 고객이 {tgt}님에게 이전되었습니다."); st.rerun()
-            else:
-                st.info("해당 담당자에게 등록된 고객이 없습니다.")
+            src_cust = st.session_state.crm_df[st.session_state.crm_df['담당자'] == src]
+            if not src_cust.empty:
+                sel_cust = st.multiselect("이전할 고객 선택", options=src_cust.index.tolist(), format_func=lambda x: f"{src_cust.loc[x, '고객명']} ({src_cust.loc[x, '모델']})")
+                if st.button(f"선택한 {len(sel_cust)}명 이전"):
+                    st.session_state.crm_df.loc[sel_cust, '담당자'] = tgt
+                    github_action(st.session_state.crm_df, FILE_PATH); st.success("이전 완료!"); st.rerun()
 
 st.divider()
 
-# --- 8. 고객 등록 및 리스트 ---
+# --- 8. 고객 등록 ---
 col_reg, col_view = st.columns([1, 3])
 with col_reg:
     st.markdown('<div class="s-title">📍 신규 고객 등록</div>', unsafe_allow_html=True)
@@ -128,14 +119,10 @@ with col_reg:
         name = st.text_input("고객명")
         mdl = st.selectbox("모델", ["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"])
         reg_date = st.date_input("계약/등록 날짜", value=datetime.now().date())
-        step = st.radio("현재 상태", ["계약완료", "인도완료"], horizontal=True)
+        step = st.radio("상태", ["계약완료", "인도완료"], horizontal=True)
         if st.form_submit_button("시스템 저장"):
             if name:
-                new_row = {
-                    "ID": len(st.session_state.crm_df)+1, "고객명": name, "담당자": st.session_state.user_name, 
-                    "계약일": str(reg_date), "인도일": str(reg_date) if step == "인도완료" else "",
-                    "모델": mdl, "단계": step, "비고": ""
-                }
+                new_row = {"ID": len(st.session_state.crm_df)+1, "고객명": name, "담당자": st.session_state.user_name, "계약일": str(reg_date), "인도일": str(reg_date) if step == "인도완료" else "", "모델": mdl, "단계": step, "비고": ""}
                 st.session_state.crm_df = pd.concat([st.session_state.crm_df, pd.DataFrame([new_row])], ignore_index=True).fillna("")
                 github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
 
@@ -143,24 +130,48 @@ with col_view:
     tab1, tab2, tab3 = st.tabs(["📝 계약 현황", "🚚 인도 완료 목록", "📅 사후관리 & 비고"])
     v_df = st.session_state.crm_df if st.session_state.user_name == "박스테반" else st.session_state.crm_df[st.session_state.crm_df['담당자'] == st.session_state.user_name]
 
-    with tab1: # 계약 현황 & 인도처리
+    # 공통 데이터 수정 로직 함수화 (탭 1, 2 공통 사용)
+    def render_customer_edit(idx, row):
+        with st.expander(f"✏️ {row['고객명']} 정보 수정"):
+            c_name = st.text_input("이름", value=row['고객명'], key=f"en_{idx}")
+            c_mdl = st.selectbox("모델", ["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"], index=["ACCORD", "CR-V 2WD", "CR-V 4WD", "PILOT", "ODYSSEY"].index(row['모델']), key=f"em_{idx}")
+            c_con_d = st.date_input("계약일", value=datetime.strptime(str(row['계약일']), "%Y-%m-%d").date(), key=f"ecd_{idx}")
+            c_ind_d = None
+            if row['단계'] == "인도완료":
+                c_ind_d = st.date_input("인도일", value=datetime.strptime(str(row['인도일']), "%Y-%m-%d").date(), key=f"eid_{idx}")
+            c_mgr = st.selectbox("담당자", list(user_db.keys()), index=list(user_db.keys()).index(row['담당자']), key=f"emgr_{idx}")
+            
+            if st.button("최종 수정 내용 저장", key=f"esav_{idx}"):
+                st.session_state.crm_df.at[idx, '고객명'] = c_name
+                st.session_state.crm_df.at[idx, '모델'] = c_mdl
+                st.session_state.crm_df.at[idx, '계약일'] = str(c_con_d)
+                if c_ind_d: st.session_state.crm_df.at[idx, '인도일'] = str(c_ind_d)
+                st.session_state.crm_df.at[idx, '담당자'] = c_mgr
+                github_action(st.session_state.crm_df, FILE_PATH); st.success("수정 완료"); st.rerun()
+
+    with tab1:
         target_con = v_df[v_df['단계'] == "계약완료"]
         for idx, row in target_con.iterrows():
-            c1, c2, c3 = st.columns([2, 3, 1.2]) 
-            with c1: st.markdown(f"**{row['고객명']}**<br><small>{row['모델']}</small>", unsafe_allow_html=True)
-            with c2: st.markdown(f"<span class='info-text'>계약일: {row['계약일']} | 담당: {row['담당자']}</span>", unsafe_allow_html=True)
-            if c3.button("🚚 인도완료", key=f"upd_{idx}"):
+            c1, c2, c3 = st.columns([3, 1, 1])
+            c1.markdown(f"**{row['고객명']}** ({row['모델']}) | 계약: {row['계약일']} | 담당: {row['담당자']}")
+            if c2.button("🚚 인도완료", key=f"upd_{idx}"):
                 st.session_state.crm_df.at[idx, '단계'] = "인도완료"
                 st.session_state.crm_df.at[idx, '인도일'] = str(datetime.now().date())
                 github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
-        st.divider(); st.dataframe(target_con[["ID","고객명","모델","계약일","담당자"]], use_container_width=True)
+            render_customer_edit(idx, row)
+        st.divider(); st.dataframe(target_con, use_container_width=True)
 
-    with tab2: st.dataframe(v_df[v_df['단계'] == "인도완료"][["ID","고객명","모델","계약일","인도일","담당자"]], use_container_width=True)
+    with tab2:
+        target_ind = v_df[v_df['단계'] == "인도완료"]
+        for idx, row in target_ind.iterrows():
+            st.markdown(f"**{row['고객명']}** ({row['모델']}) | 인도일: {row['인도일']} | 담당: {row['담당자']}")
+            render_customer_edit(idx, row)
+        st.divider(); st.dataframe(target_ind, use_container_width=True)
 
-    with tab3: # 사후관리 (인도일 기준 날짜 계산 유지)
+    with tab3: # 사후관리
         care_df = v_df[v_df['단계'] == "인도완료"]
         for idx, row in care_df.iterrows():
-            with st.expander(f"📌 {row['고객명']} ({row['모델']}) | 인도일: {row['인도일']}"):
+            with st.expander(f"📅 {row['고객명']} 사후관리 스케줄"):
                 try: base_date = datetime.strptime(str(row['인도일']), "%Y-%m-%d")
                 except: base_date = datetime.now()
                 cols = st.columns(4)
@@ -176,7 +187,7 @@ with col_view:
                             st.session_state.crm_df.at[idx, m_col] = m_txt
                             github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
                 st.divider()
-                note = st.text_area("🗒️ 상담 비고", value=row.get('비고', ""), key=f"note_{idx}")
+                note = st.text_area("🗒️ 비고", value=row.get('비고', ""), key=f"note_{idx}")
                 if st.button("비고 저장", key=f"nsav_{idx}"):
                     st.session_state.crm_df.at[idx, '비고'] = note
                     github_action(st.session_state.crm_df, FILE_PATH); st.rerun()
